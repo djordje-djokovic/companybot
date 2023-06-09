@@ -12,16 +12,16 @@ def companieshouse_finished(data):
     print(json.dumps(data))
 
 def linkedin_finish(companies):
-    print('linkedin_finish', json.dumps(companies))
+    # print('linkedin_finish', json.dumps(companies))
+    print('linkedin_finish')
 
 def linkedin_company(company):
-    print('linkedin_company', json.dumps(company))
+    # print('linkedin_company', json.dumps(company))
+    print('linkedin_company')
 
 def linkedin_profile(profile):
-    print('linkedin_profile', json.dumps(profile))
-
-def write_profiles_linkedin():
-    pass
+    # print('linkedin_profile', json.dumps(profile))
+    print('linkedin_profile')
 
 
 

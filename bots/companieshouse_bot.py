@@ -1335,7 +1335,7 @@ class CompaniesHouseBot(scrapy.Spider):
                                               'VENTURE', 'VENTURES', 'LP', 'LLP', 'L.P.', 'L.L.P.',
                                               'LLC', 'L.L.C.', 'STARTUP', 'GMBH', 'G.M.B.H', 'SARL', 'S.A.R.L', 'S.A.R.L.', 'FONDATION',
                                               'FOUNDATION', '&', 'TRUST', 'UNIVERSITY', 'SCHOOL', 'SUPPORT', 'SAS', 'S.A.S.',
-                                              'NOMINEE', 'TRADING']):
+                                              'MANAGEMENT', 'NOMINEE', 'TRADING']):
         for id in company_identifiers:
             pattern = r"\b" + re.escape(id.lower()) + r"\b"
             if re.search(pattern, name.lower()):

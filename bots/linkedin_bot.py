@@ -83,7 +83,7 @@ class LinkedInBot():
 
     def login(self, user_email, user_pwd):
         # Launch Brave browser using Selenium
-        self.logger.info('Logging in')
+        self.logger.info(f'Logging in. user: {user_email}')
         options = webdriver.ChromeOptions()
         options.add_argument('--start-maximized')
         # options.add_argument('--no-startup-window')
@@ -226,7 +226,7 @@ class LinkedInBot():
 
                     if profile_url is None:
                         profile_item.update(LinkedInErrorCodes.profile_not_found)
-                        self.logger.warning(str(profile_item))
+                        self.logger.warning(f'Profile not found. profile: {json.dumps(info)}')
                     else:
 
                         experience = self.get_experience(profile_url)
@@ -302,13 +302,13 @@ class LinkedInBot():
             # print(f'query_pending 2: {query_data}')
 
         except psycopg2.Error as e:
-            self.logger.error(f"write executing queries: {str(e)}")
+            self.logger.error(f"Write executing queries: {str(e)}")
             self.conn.rollback()
         except Exception as e:
             self.logger.error(str(e))
         else:
             self.conn.commit()
-            self.logger.info(f'write data successful: source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} profile: {name}')
+            self.logger.info(f'Write data successful: source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} profile: {name}')
         finally:
             cursor.close()
 
@@ -372,7 +372,7 @@ class LinkedInBot():
     def search(self, profile_name):
 
         # find user by name
-        self.logger.info(f'{profile_name}')
+        self.logger.info(f'Searching for profile: {profile_name}')
         self.driver.get('https://www.linkedin.com/search/results/people/')
         search = self.driver.find_element(By.CLASS_NAME, 'search-global-typeahead__input')
         search.send_keys(profile_name)
