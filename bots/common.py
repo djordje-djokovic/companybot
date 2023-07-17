@@ -1,5 +1,5 @@
 from fuzzywuzzy import fuzz
-from .config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH
+from .config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH, CRUNCHBASE_KEY
 import time
 from datetime import datetime
 from enum import Enum
@@ -104,7 +104,7 @@ def get_organizations_from_crunchbase_csv(filter = {'category_groups_list': ['In
         clean_list_of_dictionaries(organizations_list)
         return sorted(organizations_list, key=lambda x: x['name'])
 
-def create_organizations_table():
+def create_organizations_table(drop_existing=False):
     conn = psycopg2.connect(
         host=DB_HOST,
         database=DB_NAME,
@@ -116,6 +116,11 @@ def create_organizations_table():
     cursor = conn.cursor()
 
     table_name = 'crunchbase_organizations'
+
+    if drop_existing:
+        drop_table_query = f"DROP TABLE IF EXISTS {table_name}"
+        cursor.execute(drop_table_query)
+
     create_table_query = """
     CREATE TABLE IF NOT EXISTS {} (
         uuid UUID,
@@ -168,7 +173,7 @@ def create_organizations_table():
     conn.close()
 
 # pending table will contain all entries that need further processing by crunchbase REST API, companies house spider or linked in spider
-def create_pending_table():
+def create_pending_table(drop_existing=False):
     conn = psycopg2.connect(
         host=DB_HOST,
         database=DB_NAME,
@@ -180,6 +185,11 @@ def create_pending_table():
     cursor = conn.cursor()
 
     table_name = 'pending'
+
+    if drop_existing:
+        drop_table_query = f"DROP TABLE IF EXISTS {table_name}"
+        cursor.execute(drop_table_query)
+
     create_table_query = """
         CREATE TABLE IF NOT EXISTS {} (
             uuid UUID NOT NULL,
@@ -201,7 +211,8 @@ def create_pending_table():
     conn.commit()
     cursor.close()
     conn.close()
-def create_data_table():
+
+def create_data_table(drop_existing=False):
     conn = psycopg2.connect(
         host=DB_HOST,
         database=DB_NAME,
@@ -213,6 +224,11 @@ def create_data_table():
     cursor = conn.cursor()
 
     table_name = 'data'
+
+    if drop_existing:
+        drop_table_query = f"DROP TABLE IF EXISTS {table_name}"
+        cursor.execute(drop_table_query)
+
     create_table_query = """
             CREATE TABLE IF NOT EXISTS {} (
                 uuid UUID,
@@ -539,3 +555,132 @@ def get_logger(name):
     # logger.error('Error message')
     # print(os.path.exists(log_name))
     return logger
+
+
+def bulk_export_crunchbase(download_path="C:\\Users\\Djordje\\Downloads\\crunchbase_bulk_export.tar.gz"):
+    # URL of the file to be downloaded
+    url = f"https://api.crunchbase.com/bulk/v4/bulk_export.tar.gz?user_key={CRUNCHBASE_KEY}"
+    # Path where the file will be extracted
+    extraction_path = "./data/crunchbase/bulk_export"
+
+    # Download the file
+    response = requests.get(url, stream=True)
+
+    total_size = int(response.headers.get('content-length', 0))
+    block_size = 1024 #1 Kibibyte
+    total_kb = total_size // block_size
+
+    with open(download_path, 'wb') as file:
+        for data in response.iter_content(block_size):
+            file.write(data)
+            downloaded_kb = file.tell() // block_size
+            print(f'Downloaded {downloaded_kb} of {total_kb} KB', end='\r')
+
+    # Check if the downloaded file is a tar.gz file
+    if (tarfile.is_tarfile(download_path)):
+        # If it is, extract it
+        with tarfile.open(download_path, 'r:gz') as tar:
+            members = tar.getmembers()
+            for i, member in enumerate(members):
+                tar.extract(member, path=extraction_path)
+                print(f'Extracted {i + 1} of {len(members)} files', end='\r')
+    else:
+        print(f"{download_path} is not a .tar.gz file")
+
+    # Delete the downloaded tar.gz file after extraction
+    os.remove(download_path)
+
+
+def node_keys_crunchbase(download_path="C:\\Users\\Djordje\\Downloads\\crunchbase_node_keys.tar.gz"):
+    # URL of the file to be downloaded
+    url = f"https://api.crunchbase.com/node_keys/v4/node_keys.tar.gz?user_key={CRUNCHBASE_KEY}"
+    # Path where the file will be extracted
+    extraction_path = "./data/crunchbase/node_keys"
+
+    # Download the file
+    response = requests.get(url, stream=True)
+
+    total_size = int(response.headers.get('content-length', 0))
+    block_size = 1024 #1 Kibibyte
+    total_kb = total_size // block_size
+
+    with open(download_path, 'wb') as file:
+        for data in response.iter_content(block_size):
+            file.write(data)
+            downloaded_kb = file.tell() // block_size
+            print(f'Downloaded {downloaded_kb} of {total_kb} KB', end='\r')
+
+    # Check if the downloaded file is a tar.gz file
+    if (tarfile.is_tarfile(download_path)):
+        # If it is, extract it
+        with tarfile.open(download_path, 'r:gz') as tar:
+            members = tar.getmembers()
+            for i, member in enumerate(members):
+                tar.extract(member, path=extraction_path)
+                print(f'Extracted {i + 1} of {len(members)} files', end='\r')
+    else:
+        print(f"{download_path} is not a .tar.gz file")
+
+    # Delete the downloaded tar.gz file after extraction
+    os.remove(download_path)
+
+
+def initialize(filter={'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']}, download_crunchbase_csv=True, drop_tables=False):
+    """
+    Sets up and populates a database with specific Crunchbase companies based on a provided filter.
+
+    :param filter: A dictionary with keys to filter the organizations. Defaults to only include
+                   'Artificial Intelligence' companies from 'GBR' (Great Britain).
+    :type filter: dict
+    :param download_crunchbase_csv: If True, the function will download the raw csv data from Crunchbase.
+                                    This data is used to initially populate Crunchbase companies with uuid.
+                                    Defaults to True.
+    :type download_crunchbase_csv: bool
+    :param drop_tables: If True, existing database tables will be dropped and recreated. Use with caution!
+                        Defaults to False.
+    :type drop_tables: bool
+
+    :return: None
+
+    The function performs the following steps:
+    1. If download_crunchbase_csv is True, downloads and extracts Crunchbase data.
+    2. Creates the necessary database tables.
+    3. Gets a list of organizations as per the filter from the downloaded Crunchbase data.
+    4. Writes these organizations into the Crunchbase organizations table in the database.
+    5. Writes these organizations to the pending table with the type set to Crunchbase,
+       for a defined date range and with status set to pending.
+    6. Writes these organizations to the pending table with the type set to Companies House,
+       for a defined date range and with status set to pending.
+    """
+
+    if download_crunchbase_csv:
+        node_keys_crunchbase()
+        bulk_export_crunchbase()
+
+    create_organizations_table(drop_tables)
+    create_pending_table(drop_tables)
+    create_data_table(drop_tables)
+
+    # get list of organizatins as list of dictionaries. this is the initial step used to fill the database with subset of crunchbase orgnizations.
+    # we for example just record GBR organizations in crunchbase_organizations table
+    # organizations = get_organizations_from_crunchbase_csv({'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']})
+    organizations = get_organizations_from_crunchbase_csv(filter)
+    # write the organizations from crunchbase csv file into database. we use that usually to create a subset
+    write_organizations_from_csv(organizations)
+
+    # # write organizations to pending table with type = crunchbase.
+
+    write_organizations_pending(uuids_company_filter, category_groups_list = '*',
+                                source=DataSource.crunchbase,
+                                status=PendingStatus.pending,
+                                from_dt=datetime.strptime('2012-01-01', '%Y-%m-%d'),
+                                to_dt=datetime.strptime('2018-01-01', '%Y-%m-%d'),
+                                force=True)
+
+    # write organizations to pending table with type = companies house
+    write_organizations_pending(category_groups_list=['Artificial Intelligence'],
+                                source=DataSource.companieshouse,
+                                status=PendingStatus.pending,
+                                from_dt=datetime.strptime('2012-01-01', '%Y-%m-%d'),
+                                to_dt=datetime.strptime('2018-01-01', '%Y-%m-%d'),
+                                force=False)

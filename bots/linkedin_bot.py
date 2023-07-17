@@ -373,15 +373,17 @@ class LinkedInBot():
 
         # find user by name
         self.logger.info(f'Searching for profile: {profile_name}')
-        self.driver.get('https://www.linkedin.com/search/results/people/')
-        search = self.driver.find_element(By.CLASS_NAME, 'search-global-typeahead__input')
-        search.send_keys(profile_name)
-        search.send_keys(Keys.RETURN)
+        profile_name_search = profile_name.lower().replace(' ', '%20')
+        url = f'https://www.linkedin.com/search/results/people/?keywords={profile_name_search}'
+        self.driver.get(url)
+        # search = self.driver.find_element(By.CLASS_NAME, 'search-global-typeahead__input')
+        # search.send_keys(profile_name)
+        # search.send_keys(Keys.RETURN)
 
-        # Switch to the new window and wait for it to fully load
+        # # Switch to the new window and wait for it to fully load
         wait = WebDriverWait(self.driver, 10)
         wait.until(EC.title_contains(profile_name))
-        # wait.until(EC.presence_of_element_located((By.ID, 'element-id')))
+        # # wait.until(EC.presence_of_element_located((By.ID, 'element-id')))
 
         src = self.driver.page_source
         # Now using beautiful soup

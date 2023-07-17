@@ -1,3 +1,13 @@
+[//]: # (    {)
+
+[//]: # (        'author': 'Dr. Djordje Djokovic',)
+
+[//]: # (        'text': '“I may not have gone where I intended to go, but I think I ...”',)
+
+[//]: # (        'tags': ['entrepreneurship', 'high technology', 'commercialization'])
+
+[//]: # (    })
+
 # CompanyBot
 This project focuses on consolidating data from various sources about companies and entrepreneurs into a singular, comprehensive database. This assembled database is designed to serve as a valuable resource for statistical analysis. The bots that have been implemented within this project include:
 
@@ -48,43 +58,26 @@ Following information is retrieved:
 - `parse_insolvency` parses information on company insolvency. Only few companies have information on this.
 
 ### LinkedIn Bot
-`linkedin_bot` uses
+`linkedin_bot` uses custom parsing using python `beautifulsoup` and selenium to automate login and browsing. It requires 
+the bot to login as a LinkedIn user. It either requires a LinkedIn url to parse a profile or allows to search by profile
+name and company name and uses fuzzy matching logic to find the profile url.
+
+The `linkedin_bot` retrieves **general information** about a profile such as *name* and *current position*. 
+
+It also retrieves the **employment history** such as *organization names*, *positions* held and *time ranges* worked.
+
+Furthermore it retrieves the **education history** such as *organization names*, *degree* acquired and *time ranges* studied.
+
 
 ## Getting started
 In order to start using the bots following steps are needed: 
 1. **Install PostgreSQL** and create a database e.g. `uni`. You can change the configs in `./bots/config.py`. Please setup in the config the database host, username, password and port. The tables in the database are automatically created.
 2. 
 
-
-## Extracted data
-
-This project extracts company information such incorporation and insolvency data as well as data on shareholders over time.
-
-[//]: # (    {)
-
-[//]: # (        'author': 'Djordje Djokovic',)
-
-[//]: # (        'text': '“I may not have gone where I intended to go, but I think I ...”',)
-
-[//]: # (        'tags': ['entrepreneurship', 'high technology', 'commercialization'])
-
-[//]: # (    })
-
-
-## Bots
-
-This project contains one spider and you can list it using the `list`
-command:
-
-    $ scrapy list
-    toscrape
-    
-
-The companybot extracts all the data from multiple sources and combines it to a single JSON file.
-
-
 ## Running the bots
 
 You can run a spider using the `scrapy crawl` command, such as:
 
     $ scrapy crawl toscrape
+
+## Updating entries

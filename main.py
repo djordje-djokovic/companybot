@@ -1,10 +1,10 @@
 from bots.crunchbase_bot import run_crunchbase_bot
 from bots.linkedin_bot import run_linkedin_bot, run_linkedin_bot_by_dict
-from bots.common import write_organizations_pending, DataSource, PendingStatus, get_data, get_logger
+from bots.common import write_organizations_pending, DataSource, PendingStatus, get_data, get_logger, initialize
 from datetime import datetime
-import json, logging, os
+import json, logging, os, argparse
 
-from bots.config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH
+from bots.config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH, CRUNCHBASE_KEY
 from bots.companieshouse_bot import run_companieshouse_bot, run_companieshouse_bot_by_company_id
 
 def companieshouse_finished(data):
@@ -24,58 +24,84 @@ def linkedin_profile(profile):
     print('linkedin_profile')
 
 
+def main(initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False,
+         uuids_company_filter='*', uuids_profile_filter='*',
+         crunchbase_run=False, crunchbase_force=False,
+         companieshouse_run=False, companieshouse_force=False,
+         linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=['Founder', 'Director']):
 
-if __name__ == '__main__':
     logger = get_logger('CompanyBot')
 
-    # create_organizations_table()
-    # create_pending_table()
-    # create_data_table()
+    if initialize_run:
+        initialize(drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv)
 
-    # for f in CATEGORY_LIST_GROUPS:
-    #     filter = {'category_groups_list': [f], 'country_code': ['GBR']}
-    #     get_organizations_from_crunchbase_csv(filter)
+    if crunchbase_run:
+        # Query pending database to get all organizations for Crunchbase that need downloading. Use Crunchbase API
+        # to create JSON type entries into the database. We do not want to use CSV data since it is not as verbose as REST API data.
+        run_crunchbase_bot(uuids_filter=uuids_company_filter, force=crunchbase_force, logger=logger)
 
-    # # get list of organizatins as list of dictionarie. this is the initial step used to fill the database with subset of crunchbase orgnizations. we for example just record GBR organizations in crunchbase_organizations table
-    # # organizations = get_organizations_from_crunchbase_csv({'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']})
-    # organizations = get_organizations_from_crunchbase_csv({'country_code': ['GBR']})
-    # # write the organizations from crunchbase csv file into database. we use that usually to create a subset
-    # write_organizations_from_csv(organizations)
+    if companieshouse_run:
+        # Query pending database to get all organizations for Companies House that need scraping.
+        # Use Companies House spider for this. Use legal name from Crunchbase instead of name if it exists as a name input.
+        run_companieshouse_bot(uuids_filter=uuids_company_filter, force=companieshouse_force,
+                               callback_finish=companieshouse_finished, logger=logger)
 
-    uuids_company_filter = ['5fd4dcb9-77ec-8903-5300-dd4c3da76670',
-             'a7d2f427-66ba-476a-81cc-171a5d806b22']
+    if linkedin_run:
+        # Query pending database to get all profiles for LinkedIn that need scraping.
+        # Use LinkedIn spider for this and persons table from Companies House organizations data.
+        run_linkedin_bot(uuids_filter=uuids_profile_filter, uuids_parent_filter=uuids_company_filter,
+                         occupations_filter=linkedin_occupations_filter, force=linkedin_force,
+                         callback_company=linkedin_company, callback_profile=linkedin_profile,
+                         callback_finish=linkedin_finish,
+                         logger=logger)
 
-    # # write organizations to pending table with type = crunchbase.
-    #
-    # write_organizations_pending(uuids_company_filter, category_groups_list = '*',
-    #                             source=DataSource.crunchbase,
-    #                             status=PendingStatus.pending,
-    #                             from_dt=datetime.strptime('2012-01-01', '%Y-%m-%d'),
-    #                             to_dt=datetime.strptime('2018-01-01', '%Y-%m-%d'),
-    #                             force=True)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='CompanyBot Command Line Arguments')
 
-    # # write organizations to pending table with type = companies house
-    # write_organizations_pending(category_groups_list=['Artificial Intelligence'],
-    #                             source=DataSource.companieshouse,
-    #                             status=PendingStatus.pending,
-    #                             from_dt=datetime.strptime('2012-01-01', '%Y-%m-%d'),
-    #                             to_dt=datetime.strptime('2018-01-01', '%Y-%m-%d'),
-    #                             force=False)
+    parser.add_argument('--uuids-company-filter', nargs='+', help='UUIDs for company filter')
+    parser.add_argument('--uuids-profile-filter', nargs='+', help='UUIDs for profile filter')
 
-    # # query pending database to get all organizations for crunchbase that need downloading. use crunchbase api to create json type entries into databse. we do not want to use csv data since it is not as verbose as rest api data
-    # run_crunchbase_bot(uuids_filter=uuids_company_filter, force=True, logger=logger)
-    #
-    # # query pending database to get all organizations for companies house that need scraping. use companies house spider for this. use legal name from crunchbase instead of name if it exists as a name input
-    # run_companieshouse_bot(uuids_filter=uuids_company_filter, force=True, callback_finish=companieshouse_finished, logger=logger)
+    parser.add_argument('--initialize-run', choices=['true', 'false'], default='false', help='Run initialization process')
+    parser.add_argument('--initialize-drop-tables', choices=['true', 'false'], default='false', help='Drop existing database tables')
+    parser.add_argument('--initialize-download-csv', choices=['true', 'false'], default='false', help='Download raw CSV data from Crunchbase')
 
-    occupations_filter=['Founder', 'Director']
-    # query pending database to get all profiles for linkedin that need scraping. use linkedin spider for this and persons table from companies house organizations data
-    uuids_profile_filter = '*' #["4111be90-b975-56c0-adfd-6c3541418f89", "d6fbd190-b8bd-5b65-bb31-4a02ad5bfd4f"]
+    parser.add_argument('--crunchbase-run', choices=['true', 'false'], default='false', help='Run the Crunchbase bot')
+    parser.add_argument('--crunchbase-force', choices=['true', 'false'], default='false', help='Force updating Crunchbase data')
 
-    run_linkedin_bot(uuids_filter=uuids_profile_filter, uuids_parent_filter=uuids_company_filter,
-                     occupations_filter=occupations_filter, force=True,
-                     callback_company=linkedin_company, callback_profile=linkedin_profile, callback_finish=linkedin_finish,
-                     logger=logger)
+    parser.add_argument('--companieshouse-run', choices=['true', 'false'], default='false', help='Run the Companies House bot')
+    parser.add_argument('--companieshouse-force', choices=['true', 'false'], default='false', help='Force updating Companies House data')
+
+    parser.add_argument('--linkedin-run', choices=['true', 'false'], default='false', help='Run the LinkedIn bot')
+    parser.add_argument('--linkedin-force', choices=['true', 'false'], default='false', help='Force updating LinkedIn data')
+    parser.add_argument('--linkedin-occupations-filter', nargs='+', default=['Founder', 'Director'], help='LinkedIn occupations filter. Defines occupations for which profiles should be scraped.')
+
+    args = parser.parse_args()
+
+    # Convert string values to boolean
+    args_dict = vars(args)
+    for key, value in args_dict.items():
+        if isinstance(value, str):
+            args_dict[key] = value.lower() == 'true'
+
+    if args.initialize_drop_tables:
+        confirmation = input('Are you sure you want to drop the existing database tables? (y/n): ')
+        if confirmation.lower() != 'y':
+            args.initialize_drop_tables = False
+
+    main(
+        initialize_run=args.initialize_run,
+        initialize_drop_tables=args.initialize_drop_tables,
+        initialize_download_csv=args.initialize_download_csv,
+        uuids_company_filter=args.uuids_company_filter,
+        uuids_profile_filter=args.uuids_profile_filter,
+        crunchbase_run=args.crunchbase_run,
+        crunchbase_force=args.crunchbase_force,
+        companieshouse_run=args.companieshouse_run,
+        companieshouse_force=args.companieshouse_force,
+        linkedin_run=args.linkedin_run,
+        linkedin_force=args.linkedin_force,
+        linkedin_occupations_filter=args.linkedin_occupations_filter
+    )
 
     # # # run bot based on dictionary
     # profiles_by_companieshouse_id = [{'company_id': '07101408',

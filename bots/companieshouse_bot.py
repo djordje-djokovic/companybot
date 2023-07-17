@@ -1,7 +1,7 @@
 from io import StringIO
 from pathlib import Path
-from pdfminer.layout import LAParams
-from pdfminer.high_level import extract_text_to_fp, extract_pages, extract_text
+# from pdfminer.layout import LAParams
+# from pdfminer.high_level import extract_text_to_fp, extract_pages, extract_text
 import pytesseract, re, json, math, scrapy, requests, os, psycopg2
 from datetime import datetime
 from pdf2image import convert_from_path, convert_from_bytes
