@@ -30,7 +30,7 @@ from twisted.python.failure import Failure
 from twisted.internet import reactor, defer
 
 from uuid import uuid5, NAMESPACE_DNS
-from .common import PendingStatus, DataSource, get_profile_uuid, get_logger
+from .common import PendingStatus, DataSource, get_profile_uuid, logger
 from .config import TESSDATA_PATH, TESSERACT_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT, POPPLER_PATH, BRAVE_PATH # these imports are required for setup
 
 # pytesseract segmentation modes (--psm)
@@ -77,10 +77,8 @@ class CompaniesHouseBot(scrapy.Spider):
     allowed_domains = ['find-and-update.company-information.service.gov.uk']
     special_characters = '_—"?#¬|:;,=!%$£*&'
     __version__ = 'CompaniesHouseBot 0.9'
-    def __init__(self, company_id, crunchbase_company_name, uuid, poppler_path, is_write_db=False, is_write_file=False, callback_finish=None, logger=None):
+    def __init__(self, company_id, crunchbase_company_name, uuid, poppler_path, is_write_db=False, is_write_file=False, callback_finish=None):
         self.logger = logger
-        if self.logger is None:
-            self.logger = get_logger(CompaniesHouseBot.__name__)
         self.company_id = company_id
         self.crunchbase_company_name = crunchbase_company_name
         self.uuid = uuid
@@ -213,11 +211,7 @@ class CompaniesHouseBot(scrapy.Spider):
     '''
     @staticmethod
     def search(crunchbase_company_name, crunchbase_founder_names, crunchbase_founded_on, max_search_results = 10,
-               score=0.85, brave_path=r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
-               logger=None):
-
-        if logger is None:
-            logger = get_logger(CompaniesHouseBot.__name__)
+               score=0.85, brave_path=r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe'):
 
         # https://find-and-update.company-information.service.gov.uk/search?q=ANDFACTS+LIMITED
         crunchbase_company_name = crunchbase_company_name.strip()
@@ -1349,7 +1343,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
 def run_companieshouse_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
                            from_filter=datetime.min, to_filter=datetime.max,
-                           force=False, callback_finish=None, logger=None):
+                           force=False, callback_finish=None):
     run_companieshouse_bot_defer(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
     reactor.run()
 '''
@@ -1361,9 +1355,6 @@ def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='
     # companies house crawler
     company_id = '07101408'
     # Set the log level to suppress warning messages
-    if logger is None:
-        logger = get_logger(CompaniesHouseBot.__name__)
-
     settings = get_project_settings()
     data = CompaniesHouseBot.get_data_from_pending(uuids_filter, force)
 
@@ -1420,10 +1411,10 @@ def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='
 
     reactor.stop()
 
-def run_companieshouse_bot_by_company_id(company_house_id='07101408', callback_finish=None, logger=None):
+def run_companieshouse_bot_by_company_id(company_house_id='07101408', callback_finish=None):
     # companies house crawler
     settings = get_project_settings()
     process = CrawlerProcess(settings)
-    process.crawl(CompaniesHouseBot, company_id=company_house_id, poppler_path=POPPLER_PATH, write_enabled=True, callback_finish=callback_finish, logger=logger)
+    process.crawl(CompaniesHouseBot, company_id=company_house_id, poppler_path=POPPLER_PATH, write_enabled=True, callback_finish=callback_finish)
     process.start() # the script will block here until the crawling is finished
 

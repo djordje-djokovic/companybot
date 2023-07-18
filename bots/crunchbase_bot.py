@@ -2,15 +2,13 @@ import time, requests, json
 from datetime import datetime
 
 import psycopg2
-from .common import PendingStatus, DataSource, get_logger
+from .common import PendingStatus, DataSource, logger
 from .config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, CATEGORY_LIST_GROUPS, CRUNCHBASE_KEY
 class CrunchBaseBot():
     __version__ = 'CrunchBaseBot 0.9'
 
-    def __init__(self, logger=None):
+    def __init__(self):
         self.logger = logger
-        if self.logger is None:
-            self.logger = get_logger(CrunchBaseBot.__name__)
 
     def run(self, uuids_filter='*', category_groups_list_filter='*', country_code_filter='*', from_filter=datetime.min, to_filter=datetime.max, force=False):
         try:

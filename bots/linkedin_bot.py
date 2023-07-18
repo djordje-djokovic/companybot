@@ -16,7 +16,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 
 from .config import LINKEDIN_EMAIL, LINKEDIN_PWD, BRAVE_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT
-from .common import PendingStatus, DataSource, get_logger
+from .common import PendingStatus, DataSource, logger
 from .companieshouse_bot import CompaniesHouseBot
 
 class LinkedInErrorCodes():
@@ -58,11 +58,9 @@ class LinkedInBot():
     __version__ = 'LinkedInBot 0.9'
     def __init__(self, user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
                  brave_path=r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
-                 callback_profile=None, callback_company=None, callback_finish=None, logger=None):
+                 callback_profile=None, callback_company=None, callback_finish=None):
         # Set the path to the Brave browser executable
         self.logger = logger
-        if self.logger is None:
-            self.logger = get_logger('LinkedInBot')
 
         self.user_email = user_email
         self.user_pwd = user_pwd
@@ -735,11 +733,11 @@ class LinkedInBot():
 '''
 def run_linkedin_bot_by_dict(profiles_by_companieshouse_id,
                      occupations_filter=['Founder', 'Director', 'Shareholder'], force=False,
-                     callback_profile=None, callback_company=None, callback_finish=None, logger=None):
+                     callback_profile=None, callback_company=None, callback_finish=None):
 
     linkedin_bot = LinkedInBot(user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
                                brave_path=BRAVE_PATH, callback_profile=callback_profile,
-                               callback_company=callback_company, callback_finish=callback_finish, logger=logger)
+                               callback_company=callback_company, callback_finish=callback_finish)
 
     linkedin_bot.run_from_dict(profiles_by_company_id=profiles_by_companieshouse_id, occupations_filter=occupations_filter)
 
