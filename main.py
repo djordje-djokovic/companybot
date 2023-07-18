@@ -2,6 +2,7 @@ from bots.crunchbase_bot import run_crunchbase_bot
 from bots.linkedin_bot import run_linkedin_bot, run_linkedin_bot_by_dict
 from bots.common import write_organizations_pending, DataSource, PendingStatus, get_data, get_logger, initialize
 from datetime import datetime
+from dateutil import parser as date_parser
 import json, logging, os, argparse
 
 from bots.config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH, CRUNCHBASE_KEY
@@ -24,16 +25,17 @@ def linkedin_profile(profile):
     print('linkedin_profile')
 
 
-def main(initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False,
+def main(initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False, initialize_from_dt=datetime.min, inintialize_to_dt=datetime.max,
          uuids_company_filter='*', uuids_profile_filter='*',
          crunchbase_run=False, crunchbase_force=False,
          companieshouse_run=False, companieshouse_force=False,
-         linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=['Founder', 'Director']):
+         linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=['Founder', 'Director', 'Shareholder']):
 
     logger = get_logger('CompanyBot')
 
     if initialize_run:
-        initialize(drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv)
+        initialize(uuids_company_filter=uuids_company_filter, drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv,
+                   from_dt=initialize_from_dt, to_dt=inintialize_to_dt, logger=logger)
 
     if crunchbase_run:
         # Query pending database to get all organizations for Crunchbase that need downloading. Use Crunchbase API
@@ -58,12 +60,20 @@ def main(initialize_run=True, initialize_drop_tables=False, initialize_download_
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CompanyBot Command Line Arguments')
 
-    parser.add_argument('--uuids-company-filter', nargs='+', help='UUIDs for company filter')
-    parser.add_argument('--uuids-profile-filter', nargs='+', help='UUIDs for profile filter')
+    parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='UUIDs for company filter')
+    parser.add_argument('--uuids-profile-filter', nargs='+', default=['*'], help='UUIDs for profile filter')
 
-    parser.add_argument('--initialize-run', choices=['true', 'false'], default='false', help='Run initialization process')
+    parser.add_argument('--initialize-run', choices=['true', 'false'], default='false', help='Run initialization process to setup database and tables. '
+                                                                                             'WARNING! When using the --initialize-force option, exercise caution as it will '
+                                                                                             'overwrite the pending table state to True. This action will repopulate all '
+                                                                                             'selected records by the bots once again.')
     parser.add_argument('--initialize-drop-tables', choices=['true', 'false'], default='false', help='Drop existing database tables')
     parser.add_argument('--initialize-download-csv', choices=['true', 'false'], default='false', help='Download raw CSV data from Crunchbase')
+    parser.add_argument('--initialize-pending-force', choices=['true', 'false'], default='false', help='Specify if the pending state will be force reset. WARNING! When using the --initialize-force option, exercise caution as it will '
+                                                                                             'overwrite the pending table state to True. This action will repopulate all '
+                                                                                             'selected records by the bots once again.')
+    parser.add_argument('--initialize-from', type=date_parser.parse, default=datetime.min, help='Specify the start date in any format')
+    parser.add_argument('--initialize-to', type=date_parser.parse, default=datetime.max, help='Specify the end date in any format')
 
     parser.add_argument('--crunchbase-run', choices=['true', 'false'], default='false', help='Run the Crunchbase bot')
     parser.add_argument('--crunchbase-force', choices=['true', 'false'], default='false', help='Force updating Crunchbase data')
@@ -73,9 +83,19 @@ if __name__ == '__main__':
 
     parser.add_argument('--linkedin-run', choices=['true', 'false'], default='false', help='Run the LinkedIn bot')
     parser.add_argument('--linkedin-force', choices=['true', 'false'], default='false', help='Force updating LinkedIn data')
-    parser.add_argument('--linkedin-occupations-filter', nargs='+', default=['Founder', 'Director'], help='LinkedIn occupations filter. Defines occupations for which profiles should be scraped.')
+    parser.add_argument('--linkedin-occupations-filter', nargs='+', default=['Founder', 'Director', 'Shareholder'], help='LinkedIn occupations filter. Defines occupations for which profiles should be scraped.')
 
     args = parser.parse_args()
+
+    if args.uuids_company_filter[0] == '*':
+        uuids_company_filter = '*'
+    else:
+        uuids_company_filter = args.uuids_company_filter
+
+    if args.uuids_profile_filter[0] == '*':
+        uuids_profile_filter = '*'
+    else:
+        uuids_profile_filter = args.uuids_profile_filter
 
     # Convert string values to boolean
     args_dict = vars(args)
@@ -83,7 +103,12 @@ if __name__ == '__main__':
         if isinstance(value, str):
             args_dict[key] = value.lower() == 'true'
 
-    if args.initialize_drop_tables:
+    if args.initialize_run and args.initialize_pending_force:
+        confirmation = input('Are you sure you want to force reseting the pending state for the records? This would result in bots repopulating all companies again. (y/n): ')
+        if confirmation.lower() != 'y':
+            args.initialize_pending_force = False
+
+    if args.initialize_run and args.initialize_drop_tables:
         confirmation = input('Are you sure you want to drop the existing database tables? (y/n): ')
         if confirmation.lower() != 'y':
             args.initialize_drop_tables = False
@@ -92,8 +117,10 @@ if __name__ == '__main__':
         initialize_run=args.initialize_run,
         initialize_drop_tables=args.initialize_drop_tables,
         initialize_download_csv=args.initialize_download_csv,
-        uuids_company_filter=args.uuids_company_filter,
-        uuids_profile_filter=args.uuids_profile_filter,
+        initialize_from_dt=args.initialize_from,
+        inintialize_to_dt=args.initialize_to,
+        uuids_company_filter=uuids_company_filter,
+        uuids_profile_filter=uuids_profile_filter,
         crunchbase_run=args.crunchbase_run,
         crunchbase_force=args.crunchbase_force,
         companieshouse_run=args.companieshouse_run,

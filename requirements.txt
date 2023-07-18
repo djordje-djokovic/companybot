@@ -20,6 +20,7 @@ incremental==22.10.0
 itemadapter==0.8.0
 itemloaders==1.1.0
 jmespath==1.0.1
+Levenshtein==0.21.1
 lxml==4.9.3
 numpy==1.25.1
 outcome==1.2.0
@@ -36,8 +37,11 @@ PyDispatcher==2.0.7
 pyOpenSSL==23.2.0
 PySocks==1.7.1
 pytesseract==0.3.10
+python-dateutil==2.8.2
 python-dotenv==1.0.0
+python-Levenshtein==0.21.1
 queuelib==1.6.2
+rapidfuzz==3.1.1
 requests==2.31.0
 requests-file==1.5.1
 Scrapy==2.9.0

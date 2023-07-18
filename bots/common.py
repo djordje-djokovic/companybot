@@ -2,11 +2,12 @@ from fuzzywuzzy import fuzz
 from .config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH, CRUNCHBASE_KEY
 import time
 from datetime import datetime
+from dateutil import parser as date_parser
 from enum import Enum
 import re, psycopg2
 from psycopg2.extras import execute_values
 import csv, numpy as np
-import scrapy, os, json, logging
+import scrapy, os, json, logging, requests
 
 class PendingStatus(Enum):
     pending = 0
@@ -60,27 +61,31 @@ def is_guid(string):
     return re.match(pattern, string) is not None
 
 # the organisations file is not a perfect csv file. it has some line breaks that need to be handled. we just ignore line breaks
-def get_organizations_from_crunchbase_csv(filter = {'category_groups_list': ['Information Technology'], 'country_code': ['GBR']}):
+from datetime import datetime, timedelta
+
+def get_organizations_from_crunchbase_csv(filter={'category_groups_list': ['Information Technology'], 'country_code': ['GBR']},
+                                         from_dt=datetime.min, to_dt=datetime.max, logger=None):
+    logger.info("Fetching organizations from Crunchbase CSV...")
     filename = f'{CRUNCHBASE_DIR}/bulk_export/organizations.csv'
-
+    prev_progress = 0
     with open(filename, 'r', encoding='utf-8') as fp:
-
         i = 0
         values = []
         organizations_list = []
+        lines_total = len(fp.readlines()) - 1  # Subtract 1 to exclude the header line
+        fp.seek(0)  # Reset file pointer to the beginning
+
         for line in fp.readlines():
             try:
                 if i == 0:
                     header = split_csv(line)
                 else:
-
                     values = split_csv(line)
 
                     if values and is_guid(values[0]):
                         matched = np.zeros(len(filter))
                         j = 0
                         for filter_key, filter_value_list in filter.items():
-
                             key_idx = header.index(filter_key)
                             if len(values) == len(header):
                                 value = values[key_idx].strip('"').strip('\n').strip()
@@ -96,13 +101,55 @@ def get_organizations_from_crunchbase_csv(filter = {'category_groups_list': ['In
                                 break
 
                         if len(filter) == np.sum(matched):
-                            organizations_list.append(dict(zip(header, values)))
+
+                            founded_on_idx = header.index('founded_on')
+                            founded_on_str = values[founded_on_idx].strip('"').strip('\n').strip()
+
+                            if founded_on_str:
+                                founded_on = date_parser.parse(founded_on_str)
+                                if from_dt <= founded_on <= to_dt:  # Apply date range filter
+                                    organizations_list.append(dict(zip(header, values)))
+                            elif from_dt==datetime.min and to_dt==datetime.max:
+                                organizations_list.append(dict(zip(header, values)))
+
             except Exception as ex:
-                print(f'error: {str(ex)}')
+                logger.error(f'Error: {str(ex)}')
+
             i += 1
-        print(f'organizations found: {len(organizations_list)} {str(filter)}')
-        clean_list_of_dictionaries(organizations_list)
-        return sorted(organizations_list, key=lambda x: x['name'])
+            progress = i / lines_total * 100
+            if int(progress) > int(prev_progress):
+                print(f'Progress: {progress:.0f}%', end='\r')
+                prev_progress = progress
+
+    print('\n')
+
+    logger.info(f'Organizations found: {len(organizations_list)} {str(filter)}')
+    clean_list_of_dictionaries(organizations_list)
+    sorted_organizations_list = sorted(organizations_list, key=lambda x: x['name'])
+    logger.info("Organizations fetched successfully.")
+    return sorted_organizations_list
+
+
+def create_database():
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        port = DB_PORT
+    )
+
+    cursor = conn.cursor()
+    # Check if the "uni" database exists
+    cursor.execute(f"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '{DB_NAME}'")
+    database_exists = cursor.fetchone()
+
+    if not database_exists:
+        # Create the "uni" database
+        cursor.execute(f"CREATE DATABASE {DB_NAME}")
+
+    cursor.close()
+    conn.close()
 
 def create_organizations_table(drop_existing=False):
     conn = psycopg2.connect(
@@ -255,7 +302,7 @@ def clean_list_of_dictionaries(data):
                 d[key] = None
 
 # writes all organizations from csv file to database. we use it to create for example a GBR subset of data
-def write_organizations_from_csv(organizations):
+def write_organizations_from_csv(organizations, logging=None):
     # write to organizations table
     conn = psycopg2.connect(
         host=DB_HOST,
@@ -280,7 +327,7 @@ def write_organizations_from_csv(organizations):
     conn.commit()
     cursor.close()
     conn.close()
-    print(f'write_organizations_from_csv successful: {len(data)}')
+    logging.info(f'Writing organizations from csv successful: {len(data)}')
 
 '''
 This function queries the crunchbase_organizations table and writes them into pending table. wildcard '*' is supported.
@@ -296,7 +343,7 @@ force:      Used to force the status update. if it is set to false or true and c
             a new record will be written. if it is set to false and a current record exists in the table, status will not be updated.
             if it is true and record exists, record status will be updated
 '''
-def write_organizations_pending(uuids, category_groups_list, source, status=PendingStatus.pending, from_dt=datetime.min, to_dt=datetime.max, force=False):
+def write_organizations_pending(uuids, category_groups_list, source, status=PendingStatus.pending, from_dt=datetime.min, to_dt=datetime.max, force=False, logging=None):
     # write to organizations table
     conn = psycopg2.connect(
         host=DB_HOST,
@@ -363,9 +410,9 @@ def write_organizations_pending(uuids, category_groups_list, source, status=Pend
         conn.commit()
         cursor.close()
         conn.close()
-        print(f'write_organizations_pending successful: source: {source.name} status: {status} rows: {len(data)}')
+        logging.info(f'Writing organization pending successful: source: {source.name} status: {status} rows: {len(data)}')
     else:
-        print(f'write_organizations_pending no data to write for {source.name} {str(category_groups_list)}.')
+        logging.info(f'Writing organization pending has data to write for {source.name} {str(category_groups_list)}.')
 
 
 ### find differences between crunchbase and companieshouse data
@@ -517,10 +564,12 @@ class CustomFormatter(logging.Formatter):
         if self.first_record:
             self.first_record = False
             return f"{self.header}\n{super().format(record)}"
-        return super().format(record)
+
+        extra_end = getattr(record, 'end', '\n')
+        message = super().format(record)
+        return message + extra_end
 
 # Set the custom formatter for the file handler
-
 def get_logger(name):
     # Create a logger
     logger = logging.getLogger('companybot')
@@ -625,7 +674,10 @@ def node_keys_crunchbase(download_path="C:\\Users\\Djordje\\Downloads\\crunchbas
     os.remove(download_path)
 
 
-def initialize(filter={'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']}, download_crunchbase_csv=True, drop_tables=False):
+def initialize(uuids_company_filter = '*',
+               filter={'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']},
+               from_dt=datetime.min, to_dt=datetime.max,
+               download_crunchbase_csv=True, drop_tables=False, logger=None):
     """
     Sets up and populates a database with specific Crunchbase companies based on a provided filter.
 
@@ -643,6 +695,7 @@ def initialize(filter={'category_groups_list': ['Artificial Intelligence'], 'cou
     :return: None
 
     The function performs the following steps:
+    0. Create database if it doesn not exist
     1. If download_crunchbase_csv is True, downloads and extracts Crunchbase data.
     2. Creates the necessary database tables.
     3. Gets a list of organizations as per the filter from the downloaded Crunchbase data.
@@ -657,6 +710,7 @@ def initialize(filter={'category_groups_list': ['Artificial Intelligence'], 'cou
         node_keys_crunchbase()
         bulk_export_crunchbase()
 
+    create_database()
     create_organizations_table(drop_tables)
     create_pending_table(drop_tables)
     create_data_table(drop_tables)
@@ -664,23 +718,28 @@ def initialize(filter={'category_groups_list': ['Artificial Intelligence'], 'cou
     # get list of organizatins as list of dictionaries. this is the initial step used to fill the database with subset of crunchbase orgnizations.
     # we for example just record GBR organizations in crunchbase_organizations table
     # organizations = get_organizations_from_crunchbase_csv({'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']})
-    organizations = get_organizations_from_crunchbase_csv(filter)
+    organizations = get_organizations_from_crunchbase_csv(filter, from_dt, to_dt, logger)
     # write the organizations from crunchbase csv file into database. we use that usually to create a subset
-    write_organizations_from_csv(organizations)
+    write_organizations_from_csv(organizations, logging=logging)
 
     # # write organizations to pending table with type = crunchbase.
+    category_groups_list = '*'
+    if 'category_groups_list' in filter:
+        category_groups_list = filter['category_groups_list']
 
-    write_organizations_pending(uuids_company_filter, category_groups_list = '*',
+    write_organizations_pending(uuids_company_filter, category_groups_list=category_groups_list,
                                 source=DataSource.crunchbase,
                                 status=PendingStatus.pending,
-                                from_dt=datetime.strptime('2012-01-01', '%Y-%m-%d'),
-                                to_dt=datetime.strptime('2018-01-01', '%Y-%m-%d'),
-                                force=True)
+                                from_dt=from_dt,
+                                to_dt=to_dt,
+                                force=True,
+                                logging=logging)
 
     # write organizations to pending table with type = companies house
-    write_organizations_pending(category_groups_list=['Artificial Intelligence'],
+    write_organizations_pending(uuids_company_filter, category_groups_list=category_groups_list,
                                 source=DataSource.companieshouse,
                                 status=PendingStatus.pending,
-                                from_dt=datetime.strptime('2012-01-01', '%Y-%m-%d'),
-                                to_dt=datetime.strptime('2018-01-01', '%Y-%m-%d'),
-                                force=False)
+                                from_dt=from_dt,
+                                to_dt=to_dt,
+                                force=True,
+                                logging=logging)

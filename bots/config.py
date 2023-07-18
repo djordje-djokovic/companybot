@@ -1,6 +1,6 @@
 import os, pytesseract
 
-CRUNCHBASE_DIR = 'C:\\projects\\uni\\data\\crunchbase'
+CRUNCHBASE_DIR = './data/crunchbase'
 CRUNCHBASE_KEY = 'dfb043062d28d95b82945d8673377146'
 
 POPPLER_PATH = 'C:\\Program Files (x86)\\poppler-23.01.0\\Library\\bin'
