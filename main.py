@@ -1,6 +1,6 @@
 from bots.crunchbase_bot import run_crunchbase_bot
 from bots.linkedin_bot import run_linkedin_bot, run_linkedin_bot_by_dict
-from bots.common import write_organizations_pending, DataSource, PendingStatus, get_data, get_logger, initialize
+from bots.common import write_organizations_pending, DataSource, PendingStatus, get_data, get_logger, initialize, logger
 from datetime import datetime
 from dateutil import parser as date_parser
 import json, logging, os, argparse
@@ -25,43 +25,59 @@ def linkedin_profile(profile):
     print('linkedin_profile')
 
 
-def main(initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False, initialize_from_dt=datetime.min, inintialize_to_dt=datetime.max,
-         uuids_company_filter='*', uuids_profile_filter='*',
-         crunchbase_run=False, crunchbase_force=False,
-         companieshouse_run=False, companieshouse_force=False,
-         linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=['Founder', 'Director', 'Shareholder']):
-
-    logger = get_logger('CompanyBot')
+def main(
+            uuids_filter='*', uuids_profile_filter='*',
+            category_groups_list_filter='*', country_code_filter='*',
+            from_filter=datetime.min, to_filter=datetime.max,
+            initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False, initialize_write_organizations=False,
+            crunchbase_run=False, crunchbase_force=False,
+            companieshouse_run=False, companieshouse_force=False,
+            linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=['Founder', 'Director', 'Shareholder']):
 
     if initialize_run:
-        initialize(uuids_company_filter=uuids_company_filter, drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv,
-                   from_dt=initialize_from_dt, to_dt=inintialize_to_dt, logger=logger)
+        initialize(uuids_filter=uuids_filter,
+                   category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
+                   from_filter=from_filter, to_filter=to_filter,
+                   drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv, write_organizations=initialize_write_organizations
+                   )
 
     if crunchbase_run:
         # Query pending database to get all organizations for Crunchbase that need downloading. Use Crunchbase API
         # to create JSON type entries into the database. We do not want to use CSV data since it is not as verbose as REST API data.
-        run_crunchbase_bot(uuids_filter=uuids_company_filter, force=crunchbase_force, logger=logger)
+        run_crunchbase_bot(uuids_filter=uuids_filter,
+                           category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
+                           from_filter=from_filter, to_filter=to_filter,
+                           force=crunchbase_force)
 
     if companieshouse_run:
         # Query pending database to get all organizations for Companies House that need scraping.
         # Use Companies House spider for this. Use legal name from Crunchbase instead of name if it exists as a name input.
-        run_companieshouse_bot(uuids_filter=uuids_company_filter, force=companieshouse_force,
-                               callback_finish=companieshouse_finished, logger=logger)
+        run_companieshouse_bot(uuids_filter=uuids_filter,
+                               category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
+                               from_filter=from_filter, to_filter=to_filter,
+                               force=companieshouse_force,
+                               callback_finish=companieshouse_finished)
 
     if linkedin_run:
         # Query pending database to get all profiles for LinkedIn that need scraping.
         # Use LinkedIn spider for this and persons table from Companies House organizations data.
-        run_linkedin_bot(uuids_filter=uuids_profile_filter, uuids_parent_filter=uuids_company_filter,
-                         occupations_filter=linkedin_occupations_filter, force=linkedin_force,
+        run_linkedin_bot(uuids_profile_filter=uuids_profile_filter, uuids_filter=uuids_filter,
+                         category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
+                         from_filter=from_filter, to_filter=to_filter,
+                         occupations_filter=linkedin_occupations_filter,
+                         force=linkedin_force,
                          callback_company=linkedin_company, callback_profile=linkedin_profile,
-                         callback_finish=linkedin_finish,
-                         logger=logger)
+                         callback_finish=linkedin_finish)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CompanyBot Command Line Arguments')
 
-    parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='UUIDs for company filter')
-    parser.add_argument('--uuids-profile-filter', nargs='+', default=['*'], help='UUIDs for profile filter')
+    parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='Coumpany UUIDs filter')
+    parser.add_argument('--uuids-profile-filter', nargs='+', default=['*'], help='Linkedin UUIDs profile filter')
+    parser.add_argument('--category-groups-list-filter', nargs='+', default=['Artificial Intelligence'], help='Company category group filter')
+    parser.add_argument('--country-code-filter', nargs='+', default=['GBR'], help='Company country code filter')
+    parser.add_argument('--from-filter', type=date_parser.parse, default=datetime.min, help='Founding start date filter')
+    parser.add_argument('--to-filter', type=date_parser.parse, default=datetime.max, help='Founding end date filter')
 
     parser.add_argument('--initialize-run', choices=['true', 'false'], default='false', help='Run initialization process to setup database and tables. '
                                                                                              'WARNING! When using the --initialize-force option, exercise caution as it will '
@@ -69,11 +85,10 @@ if __name__ == '__main__':
                                                                                              'selected records by the bots once again.')
     parser.add_argument('--initialize-drop-tables', choices=['true', 'false'], default='false', help='Drop existing database tables')
     parser.add_argument('--initialize-download-csv', choices=['true', 'false'], default='false', help='Download raw CSV data from Crunchbase')
+    parser.add_argument('--initialize-write-organizations', choices=['true', 'false'], default='false', help='Write organizations from Crunchbase csv file')
     parser.add_argument('--initialize-pending-force', choices=['true', 'false'], default='false', help='Specify if the pending state will be force reset. WARNING! When using the --initialize-force option, exercise caution as it will '
                                                                                              'overwrite the pending table state to True. This action will repopulate all '
                                                                                              'selected records by the bots once again.')
-    parser.add_argument('--initialize-from', type=date_parser.parse, default=datetime.min, help='Specify the start date in any format')
-    parser.add_argument('--initialize-to', type=date_parser.parse, default=datetime.max, help='Specify the end date in any format')
 
     parser.add_argument('--crunchbase-run', choices=['true', 'false'], default='false', help='Run the Crunchbase bot')
     parser.add_argument('--crunchbase-force', choices=['true', 'false'], default='false', help='Force updating Crunchbase data')
@@ -87,15 +102,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.uuids_company_filter[0] == '*':
-        uuids_company_filter = '*'
-    else:
-        uuids_company_filter = args.uuids_company_filter
-
-    if args.uuids_profile_filter[0] == '*':
-        uuids_profile_filter = '*'
-    else:
-        uuids_profile_filter = args.uuids_profile_filter
+    uuids_company_filter = '*' if args.uuids_company_filter[0] == '*' else args.uuids_company_filter
+    uuids_profile_filter = '*' if args.uuids_profile_filter[0] == '*' else args.uuids_profile_filter
+    category_groups_list_filter = '*' if args.category_groups_list_filter[0] == '*' else args.category_groups_list_filter
+    country_code_filter = '*' if args.country_code_filter[0] == '*' else args.country_code_filter
 
     # Convert string values to boolean
     args_dict = vars(args)
@@ -114,13 +124,16 @@ if __name__ == '__main__':
             args.initialize_drop_tables = False
 
     main(
+        uuids_filter=uuids_company_filter,
+        uuids_profile_filter=uuids_profile_filter,
+        category_groups_list_filter=category_groups_list_filter,
+        country_code_filter=country_code_filter,
+        from_filter=args.from_filter,
+        to_filter=args.to_filter,
         initialize_run=args.initialize_run,
         initialize_drop_tables=args.initialize_drop_tables,
         initialize_download_csv=args.initialize_download_csv,
-        initialize_from_dt=args.initialize_from,
-        inintialize_to_dt=args.initialize_to,
-        uuids_company_filter=uuids_company_filter,
-        uuids_profile_filter=uuids_profile_filter,
+        initialize_write_organizations=args.initialize_write_organizations,
         crunchbase_run=args.crunchbase_run,
         crunchbase_force=args.crunchbase_force,
         companieshouse_run=args.companieshouse_run,

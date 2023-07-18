@@ -63,9 +63,19 @@ def is_guid(string):
 # the organisations file is not a perfect csv file. it has some line breaks that need to be handled. we just ignore line breaks
 from datetime import datetime, timedelta
 
-def get_organizations_from_crunchbase_csv(filter={'category_groups_list': ['Information Technology'], 'country_code': ['GBR']},
-                                         from_dt=datetime.min, to_dt=datetime.max, logger=None):
-    logger.info("Fetching organizations from Crunchbase CSV...")
+def get_organizations_from_crunchbase_csv(uuids_filter, category_groups_list_filter, country_code_filter,
+                                          from_filter=datetime.min, to_filter=datetime.max):
+    filter = {}
+
+    assert type(uuids_filter) == list or uuids_filter == '*'
+    assert type(category_groups_list_filter) == list or category_groups_list_filter == '*'
+    assert type(country_code_filter) == list or country_code_filter == '*'
+
+    if uuids_filter != '*': filter['uuid'] = uuids_filter
+    if category_groups_list_filter != '*': filter['category_groups_list'] = category_groups_list_filter
+    if country_code_filter != '*': filter['country_code'] = country_code_filter
+
+    logger.info(f"Fetching organizations from Crunchbase CSV with filters {str(filter)}")
     filename = f'{CRUNCHBASE_DIR}/bulk_export/organizations.csv'
     prev_progress = 0
     with open(filename, 'r', encoding='utf-8') as fp:
@@ -107,9 +117,9 @@ def get_organizations_from_crunchbase_csv(filter={'category_groups_list': ['Info
 
                             if founded_on_str:
                                 founded_on = date_parser.parse(founded_on_str)
-                                if from_dt <= founded_on <= to_dt:  # Apply date range filter
+                                if from_filter <= founded_on <= to_filter:  # Apply date range filter
                                     organizations_list.append(dict(zip(header, values)))
-                            elif from_dt==datetime.min and to_dt==datetime.max:
+                            elif from_filter==datetime.min and to_filter==datetime.max:
                                 organizations_list.append(dict(zip(header, values)))
 
             except Exception as ex:
@@ -327,7 +337,7 @@ def write_organizations_from_csv(organizations, logging=None):
     conn.commit()
     cursor.close()
     conn.close()
-    logging.info(f'Writing organizations from csv successful: {len(data)}')
+    logger.info(f'Writing organizations from csv successful: {len(data)}')
 
 '''
 This function queries the crunchbase_organizations table and writes them into pending table. wildcard '*' is supported.
@@ -337,13 +347,14 @@ uuids: List of uuids. wildcard * is supported
 category_groups_list: List of categories. wildcard * is supported
 source:     Expects a DataSource enum, i.e. crunchbase, companieshouse, linkedin
 status:     Expects a PendingStatus enum. i.e. pending, completed
-from_dt:    Date from which companies have been founded to query original csv crunchbase dataset
-to_dt:      Date until companies have been founded to query original csv crunchbase dataset
+from_filter:    Date from which companies have been founded to query original csv crunchbase dataset
+to_filter:      Date until companies have been founded to query original csv crunchbase dataset
 force:      Used to force the status update. if it is set to false or true and current record does not exist in pending table, 
             a new record will be written. if it is set to false and a current record exists in the table, status will not be updated.
             if it is true and record exists, record status will be updated
 '''
-def write_organizations_pending(uuids, category_groups_list, source, status=PendingStatus.pending, from_dt=datetime.min, to_dt=datetime.max, force=False, logging=None):
+def write_organizations_pending(uuids, category_groups_list, country_code, source, status=PendingStatus.pending,
+                                fr=datetime.min, to=datetime.max, force=False):
     # write to organizations table
     conn = psycopg2.connect(
         host=DB_HOST,
@@ -365,11 +376,17 @@ def write_organizations_pending(uuids, category_groups_list, source, status=Pend
     else:
         category_groups_list_str = ', '.join([f"'%{item}%'" for item in category_groups_list])
 
+    if country_code == '*':
+        country_code_str = "'%'"
+    else:
+        country_code_str = ', '.join([f"'{item}'" for item in country_code])
+
     query = f"SELECT uuid, name, legal_name, category_groups_list, founded_on " \
             f"FROM crunchbase_organizations " \
-            f"WHERE founded_on >= '{from_dt.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
-            f"founded_on <= '{to_dt.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+            f"WHERE founded_on >= '{fr.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+            f"founded_on <= '{to.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
             f"category_groups_list::text ILIKE ANY (ARRAY[{category_groups_list_str}]) and " \
+            f"country_code::text ILIKE ANY (ARRAY[{country_code_str}]) and " \
             f"uuid::text ILIKE ANY (ARRAY[{uuids_str}])"
 
     cursor.execute(query)
@@ -410,9 +427,9 @@ def write_organizations_pending(uuids, category_groups_list, source, status=Pend
         conn.commit()
         cursor.close()
         conn.close()
-        logging.info(f'Writing organization pending successful: source: {source.name} status: {status} rows: {len(data)}')
+        logger.info(f'Writing organization pending successful: source: {source.name} status: {status} rows: {len(data)}')
     else:
-        logging.info(f'Writing organization pending has data to write for {source.name} {str(category_groups_list)}.')
+        logger.info(f'Writing organization pending has data to write for {source.name} {str(category_groups_list)}.')
 
 
 ### find differences between crunchbase and companieshouse data
@@ -565,9 +582,8 @@ class CustomFormatter(logging.Formatter):
             self.first_record = False
             return f"{self.header}\n{super().format(record)}"
 
-        extra_end = getattr(record, 'end', '\n')
         message = super().format(record)
-        return message + extra_end
+        return message
 
 # Set the custom formatter for the file handler
 def get_logger(name):
@@ -674,10 +690,9 @@ def node_keys_crunchbase(download_path="C:\\Users\\Djordje\\Downloads\\crunchbas
     os.remove(download_path)
 
 
-def initialize(uuids_company_filter = '*',
-               filter={'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']},
-               from_dt=datetime.min, to_dt=datetime.max,
-               download_crunchbase_csv=True, drop_tables=False, logger=None):
+def initialize(uuids_filter ='*', category_groups_list_filter ='*', country_code_filter ='*',
+               from_filter=datetime.min, to_filter=datetime.max,
+               download_crunchbase_csv=True, drop_tables=False, write_organizations=False):
     """
     Sets up and populates a database with specific Crunchbase companies based on a provided filter.
 
@@ -715,31 +730,28 @@ def initialize(uuids_company_filter = '*',
     create_pending_table(drop_tables)
     create_data_table(drop_tables)
 
-    # get list of organizatins as list of dictionaries. this is the initial step used to fill the database with subset of crunchbase orgnizations.
-    # we for example just record GBR organizations in crunchbase_organizations table
-    # organizations = get_organizations_from_crunchbase_csv({'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']})
-    organizations = get_organizations_from_crunchbase_csv(filter, from_dt, to_dt, logger)
-    # write the organizations from crunchbase csv file into database. we use that usually to create a subset
-    write_organizations_from_csv(organizations, logging=logging)
+    if write_organizations:
+        # get list of organizatins as list of dictionaries. this is the initial step used to fill the database with subset of crunchbase orgnizations.
+        # we for example just record GBR organizations in crunchbase_organizations table
+        # organizations = get_organizations_from_crunchbase_csv({'category_groups_list': ['Artificial Intelligence'], 'country_code': ['GBR']})
+        organizations = get_organizations_from_crunchbase_csv(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter)
+        # write the organizations from crunchbase csv file into database. we use that usually to create a subset
+        write_organizations_from_csv(organizations, logging=logging)
 
-    # # write organizations to pending table with type = crunchbase.
-    category_groups_list = '*'
-    if 'category_groups_list' in filter:
-        category_groups_list = filter['category_groups_list']
 
-    write_organizations_pending(uuids_company_filter, category_groups_list=category_groups_list,
+    write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_code=country_code_filter,
                                 source=DataSource.crunchbase,
                                 status=PendingStatus.pending,
-                                from_dt=from_dt,
-                                to_dt=to_dt,
-                                force=True,
-                                logging=logging)
+                                fr=from_filter,
+                                to=to_filter,
+                                force=True)
 
     # write organizations to pending table with type = companies house
-    write_organizations_pending(uuids_company_filter, category_groups_list=category_groups_list,
+    write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_code=country_code_filter,
                                 source=DataSource.companieshouse,
                                 status=PendingStatus.pending,
-                                from_dt=from_dt,
-                                to_dt=to_dt,
-                                force=True,
-                                logging=logging)
+                                fr=from_filter,
+                                to=to_filter,
+                                force=True)
+
+logger = get_logger('CompanyBot')

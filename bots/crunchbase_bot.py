@@ -10,9 +10,9 @@ class CrunchBaseBot():
     def __init__(self, logger=None):
         self.logger = logger
         if self.logger is None:
-            self.logger = get_logger(self.__name__)
+            self.logger = get_logger(CrunchBaseBot.__name__)
 
-    def run(self, uuids_filter='*', force=False):
+    def run(self, uuids_filter='*', category_groups_list_filter='*', country_code_filter='*', from_filter=datetime.min, to_filter=datetime.max, force=False):
         try:
             self.conn = psycopg2.connect(
                 host=DB_HOST,
@@ -122,6 +122,8 @@ class CrunchBaseBot():
 
         return rows
 
-def run_crunchbase_bot(uuids_filter='*', force=False, logger=None):
-    crunchbasebot = CrunchBaseBot(logger=logger)
-    crunchbasebot.run(uuids_filter, force)
+def run_crunchbase_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
+                        from_filter=datetime.min, to_filter=datetime.max,
+                        force=False):
+    crunchbasebot = CrunchBaseBot()
+    crunchbasebot.run(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter, force)

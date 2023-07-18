@@ -80,7 +80,7 @@ class CompaniesHouseBot(scrapy.Spider):
     def __init__(self, company_id, crunchbase_company_name, uuid, poppler_path, is_write_db=False, is_write_file=False, callback_finish=None, logger=None):
         self.logger = logger
         if self.logger is None:
-            self.logger = get_logger(self.__name__)
+            self.logger = get_logger(CompaniesHouseBot.__name__)
         self.company_id = company_id
         self.crunchbase_company_name = crunchbase_company_name
         self.uuid = uuid
@@ -215,6 +215,10 @@ class CompaniesHouseBot(scrapy.Spider):
     def search(crunchbase_company_name, crunchbase_founder_names, crunchbase_founded_on, max_search_results = 10,
                score=0.85, brave_path=r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
                logger=None):
+
+        if logger is None:
+            logger = get_logger(CompaniesHouseBot.__name__)
+
         # https://find-and-update.company-information.service.gov.uk/search?q=ANDFACTS+LIMITED
         crunchbase_company_name = crunchbase_company_name.strip()
         search_name = crunchbase_company_name.replace(' ', '+')
@@ -308,22 +312,22 @@ class CompaniesHouseBot(scrapy.Spider):
                         founders_lower = [x.lower() for x in crunchbase_founder_names]
                         matching_score = CompaniesHouseBot.calculate_matching_score(officers_lower, founders_lower)
                         if matching_score >= score:
-                            if logger: logger.info(f'search. successful match by FOUNDER NAME and DATE {json.dumps(msg)}')
+                            logger.info(f'search. successful match by FOUNDER NAME and DATE {json.dumps(msg)}')
                             return id_company, url_company
                         else:
-                            if logger: logger.info(f'search. unsuccessful match by FOUNDER NAME and DATE {json.dumps(msg)}')
+                            logger.info(f'search. unsuccessful match by FOUNDER NAME and DATE {json.dumps(msg)}')
                     # match by founding date
                     elif is_match_founded_fuzzy and is_match_company_fuzzy_strong:
-                        if logger: logger.info(f'search. successful match by COMPANY NAME and DATE {json.dumps(msg)}')
+                        logger.info(f'search. successful match by COMPANY NAME and DATE {json.dumps(msg)}')
                         return id_company, url_company
                     elif is_match_company_name_exact:
-                        if logger: logger.info(f'search. successful match by COMPANY NAME {json.dumps(msg)}')
+                        logger.info(f'search. successful match by COMPANY NAME {json.dumps(msg)}')
                         return id_company, url_company
                     else:
-                        if logger: logger.info(f'search. unsuccessful match by COMPANY NAME and DATE {json.dumps(msg)}')
+                        logger.info(f'search. unsuccessful match by COMPANY NAME and DATE {json.dumps(msg)}')
 
         except Exception as ex:
-            if logger: logger.error(f'search. {str(ex)}')
+            logger.error(f'search. {str(ex)}')
 
         return None
 
@@ -1343,18 +1347,23 @@ class CompaniesHouseBot(scrapy.Spider):
 
         return False
 
-def run_companieshouse_bot(uuids_filter='*', force=False, callback_finish=None, logger=None):
-    run_companieshouse_bot_defer(uuids_filter=uuids_filter, force=force, callback_finish=callback_finish, logger=logger)
+def run_companieshouse_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
+                           from_filter=datetime.min, to_filter=datetime.max,
+                           force=False, callback_finish=None, logger=None):
+    run_companieshouse_bot_defer(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
     reactor.run()
 '''
 if uuids are not supplied, all companies that are pending in pending table will be scraped
 if force is True, then pending status completed will be ignored and scraped again 
 '''
 @defer.inlineCallbacks
-def run_companieshouse_bot_defer(uuids_filter='*', force=False, callback_finish=None, logger=None):
+def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*', from_filter=datetime.min, to_filter=datetime.max, force=False, callback_finish=None):
     # companies house crawler
     company_id = '07101408'
     # Set the log level to suppress warning messages
+    if logger is None:
+        logger = get_logger(CompaniesHouseBot.__name__)
+
     settings = get_project_settings()
     data = CompaniesHouseBot.get_data_from_pending(uuids_filter, force)
 
@@ -1384,7 +1393,7 @@ def run_companieshouse_bot_defer(uuids_filter='*', force=False, callback_finish=
                    'founders_CB': crunchbase_founder_names,
                    }
 
-            if logger: logger.info(f'run_companieshouse_bot. \nsearching for: {json.dumps(msg)}')
+            logger.info(f'run_companieshouse_bot. \nsearching for: {json.dumps(msg)}')
 
             search_results = CompaniesHouseBot.search(crunchbase_company_name, crunchbase_founder_names, crunchbase_founded_on, 10, 0.85, BRAVE_PATH)
 
@@ -1392,7 +1401,7 @@ def run_companieshouse_bot_defer(uuids_filter='*', force=False, callback_finish=
                 company_id, company_url = search_results
                 msg['url'] = company_url
 
-                if logger: logger.info(f'run_companieshouse_bot. found and starting to crawl: {json.dumps(msg)}.')
+                logger.info(f'run_companieshouse_bot. found and starting to crawl: {json.dumps(msg)}.')
                 # process = CrawlerProcess(settings)
                 # process.crawl(CompaniesHouseBot, company_id=company_id, crunchbase_company_name=row['name'], uuid=uuid, poppler_path=POPPLER_PATH, is_write_db=True, is_write_file=False, callback_finish=companieshouse_finished)
                 # process.start() # the script will block here until the crawling is finished
@@ -1404,10 +1413,10 @@ def run_companieshouse_bot_defer(uuids_filter='*', force=False, callback_finish=
                 yield runner.crawl(CompaniesHouseBot, **args)
 
             else:
-                if logger: logger.warning(f'run_companieshouse_bot. not found {json.dumps(msg)}.')
+                logger.warning(f'run_companieshouse_bot. not found {json.dumps(msg)}.')
 
         except Exception as ex:
-            if logger: logger.error(f'run_companieshouse_bot. {str(ex)}')
+            logger.error(f'run_companieshouse_bot. {str(ex)}')
 
     reactor.stop()
 

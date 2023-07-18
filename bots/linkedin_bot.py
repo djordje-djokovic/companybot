@@ -129,10 +129,13 @@ class LinkedInBot():
         self.logger.info('Logging in completed.')
 
     @staticmethod
-    def get_data_from_pending(uuids_filter='*', uuids_parent_filter='*', force=False):
+    def get_data_from_pending(uuids_filter='*', uuids_parent_filter='*', category_groups_list_filter='*', country_code_filter='*', occupations_filter='*', force=False):
 
         assert type(uuids_filter) == list or uuids_filter == '*'
         assert type(uuids_parent_filter) == list or uuids_parent_filter == '*'
+        assert type(category_groups_list_filter) == list or category_groups_list_filter == '*'
+        assert type(country_code_filter) == list or country_code_filter == '*'
+        assert type(occupations_filter) == list or occupations_filter == '*'
 
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -172,7 +175,7 @@ class LinkedInBot():
 
         return result
 
-    def run(self, uuids_filter='*', uuids_parent_filter='*', occupations_filter=['Founder', 'Director', 'Shareholder', 'Secretary'], force=False):
+    def run(self, uuids_filter='*', uuids_parent_filter='*', category_groups_list_filter='*', country_code_filter='*', occupations_filter=['Founder', 'Director', 'Shareholder', 'Secretary'], force=False):
 
         self.login(self.user_email, self.user_pwd)
 
@@ -180,7 +183,7 @@ class LinkedInBot():
         self.uuids_parent_filter = uuids_parent_filter
         self.occupations_filter = occupations_filter
 
-        data = self.get_data_from_pending(uuids_filter, uuids_parent_filter, force)
+        data = self.get_data_from_pending(uuids_filter, uuids_parent_filter, category_groups_list_filter, country_code_filter, occupations_filter, force)
 
         if not data:
             self.logger.error('LinkedinBot::run no data found in pending')
@@ -731,7 +734,7 @@ class LinkedInBot():
 
 '''
 def run_linkedin_bot_by_dict(profiles_by_companieshouse_id,
-                     occupations_filter=['Founder', 'Director'], force=False,
+                     occupations_filter=['Founder', 'Director', 'Shareholder'], force=False,
                      callback_profile=None, callback_company=None, callback_finish=None, logger=None):
 
     linkedin_bot = LinkedInBot(user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
@@ -741,13 +744,13 @@ def run_linkedin_bot_by_dict(profiles_by_companieshouse_id,
     linkedin_bot.run_from_dict(profiles_by_company_id=profiles_by_companieshouse_id, occupations_filter=occupations_filter)
 
 
-def run_linkedin_bot(uuids_filter='*', uuids_parent_filter='*',
-                     occupations_filter=['Founder', 'Director'], force=False,
-                     callback_profile=None, callback_company=None, callback_finish=None, logger=None):
+def run_linkedin_bot(uuids_profile_filter='*', uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
+                     occupations_filter=['Founder', 'Director', 'Shareholder'], force=False,
+                     callback_profile=None, callback_company=None, callback_finish=None):
 
     linkedin_bot = LinkedInBot(user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
                                brave_path=BRAVE_PATH, callback_profile=callback_profile,
-                               callback_company=callback_company, callback_finish=callback_finish, logger=logger)
+                               callback_company=callback_company, callback_finish=callback_finish)
 
-    linkedin_bot.run(uuids_filter=uuids_filter, uuids_parent_filter=uuids_parent_filter,
+    linkedin_bot.run(uuids_profile_filter=uuids_profile_filter, uuids_filter=uuids_filter, category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
                      occupations_filter=occupations_filter, force=force)
