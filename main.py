@@ -123,6 +123,12 @@ if __name__ == '__main__':
         if confirmation.lower() != 'y':
             args.initialize_drop_tables = False
 
+
+    logger.info("CompanyBot Command Line Arguments:")
+    for arg in vars(args):
+        arg_value = getattr(args, arg)
+        logger.info(f"CompanyBot Command Line Argument {arg}: {arg_value}")
+
     main(
         uuids_filter=uuids_company_filter,
         uuids_profile_filter=uuids_profile_filter,

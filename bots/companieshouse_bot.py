@@ -591,7 +591,7 @@ class CompaniesHouseBot(scrapy.Spider):
             self.logger.error(f"write: {str(e)}")
         else:
             self.conn.commit()
-            self.logger.info(f'write data successful. source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} company: {name}')
+            self.logger.info(f'Writing data successful from source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} company: {name}')
         finally:
             cursor.close()
 

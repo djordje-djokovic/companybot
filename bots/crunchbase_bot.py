@@ -19,16 +19,17 @@ class CrunchBaseBot():
                 password=DB_PASSWORD,
                 port=DB_PORT
             )
-            data = self.get_data_from_pending(uuids_filter, force)
+            data = self.get_data_from_pending(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
             for row in data:
                 uuid = row[0]
                 name = row[1]
                 legal_name = row[2]
-                category_groups_list = row[3]
-                founded_on = row[4]
+                country_code = row[3]
+                category_groups_list = row[4]
+                founded_on = row[5]
                 json_rest_api = self.get_rest_api(row)
-                self.write(uuid, name, legal_name, category_groups_list, founded_on, json_rest_api)
-                time.sleep(5)
+                self.write(uuid, name, legal_name, country_code, category_groups_list, founded_on, json_rest_api)
+                time.sleep(2)
 
         except Exception as ex:
             self.logger.error(ex)
@@ -57,12 +58,13 @@ class CrunchBaseBot():
         return r
 
 
-    def write(self, uuid, name, legal_name, category_groups_list, founded_on, json_rest_api):
+    def write(self, uuid, name, legal_name, country_code, category_groups_list, founded_on, json_rest_api):
         table_name = 'data'
         dt = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
         data_str = json.dumps(json_rest_api)
 
-        d = {'uuid': uuid, 'uuid_parent': uuid, 'name': name, 'source': DataSource.crunchbase.name, 'version':self.__version__,'created_at': dt,'updated_at': dt,'data': data_str}
+        d = {'uuid': uuid, 'uuid_parent': uuid, 'name': name,
+             'source': DataSource.crunchbase.name, 'version':self.__version__,'created_at': dt,'updated_at': dt,'data': data_str}
         columns = d.keys()
         values = tuple(d.values())
 
@@ -77,18 +79,19 @@ class CrunchBaseBot():
         query_pending = f"UPDATE pending SET status = '{PendingStatus.completed.name}', updated_at = '{dt}'  WHERE uuid = '{uuid}' AND source = '{DataSource.crunchbase.name}'"
         cursor = self.conn.cursor()
         cursor.execute(query_pending)
-
+        self.conn.commit()
+        self.logger.info(f'Update pending status from source: {DataSource.crunchbase.name} status: {PendingStatus.completed.name} company: {name}')
         # write pending table for companies house. this is done so that we immidiately have pending record for companieshouse
         # when a new crunchbase record is written if a record is already existing in
         # pending table for this company and companies house DO NOTHING ON CONFLICT
-        columns_companieshouse = ['uuid', 'uuid_parent', 'name', 'legal_name', 'category_groups_list', 'founded_on', 'source', 'status', 'version', 'created_at', 'updated_at']
+        columns_companieshouse = ['uuid', 'uuid_parent', 'name', 'legal_name', 'country_code', 'category_groups_list', 'founded_on', 'source', 'status', 'version', 'created_at', 'updated_at']
         source = DataSource.companieshouse.name
         status = PendingStatus.pending.name
         version = ''
         created_at = dt
         updated_at = dt
-        values_pending_companieshouse = [uuid, uuid, name, legal_name, category_groups_list, founded_on, source, status, version, created_at, updated_at]
-        query_pending_companieshouse = f"INSERT INTO pending ({', '.join(columns_companieshouse)}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) " \
+        values_pending_companieshouse = [uuid, uuid, name, legal_name, country_code, category_groups_list, founded_on, source, status, version, created_at, updated_at]
+        query_pending_companieshouse = f"INSERT INTO pending ({', '.join(columns_companieshouse)}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) " \
                         f"ON CONFLICT DO NOTHING"
         cursor = self.conn.cursor()
         cursor.execute(query_pending_companieshouse, values_pending_companieshouse)
@@ -96,23 +99,44 @@ class CrunchBaseBot():
         self.conn.commit()
         cursor.close()
 
-        self.logger.info(f'write data successful: source: {DataSource.crunchbase.name} status: {PendingStatus.completed.name} company: {name}')
+        self.logger.info(f'Writing data successful from source: {DataSource.crunchbase.name} status: {PendingStatus.completed.name} company: {name}')
 
-    def get_data_from_pending(self, uuids_filter='*', force=False):
+    def get_data_from_pending(self, uuids='*', category_groups_list='*', country_codes='*', fr=datetime.max, to=datetime.max, force=False):
 
-        uuids_str = ', '.join([f"'{item}'" for item in uuids_filter]) if type(
-            uuids_filter) == list else uuids_filter.replace('*', "'%'")
+        # uuids_str = ', '.join([f"'{item}'" for item in uuids]) if type(
+        #     uuids) == list else uuids.replace('*', "'%'")
 
+        if uuids == '*':
+            uuids_str = "'%'"
+        else:
+            uuids_str = ', '.join([f"'{item}'" for item in uuids])
+
+        if category_groups_list == '*':
+            category_groups_list_str = "'%'"
+        else:
+            category_groups_list_str = ', '.join([f"'%{item}%'" for item in category_groups_list])
+
+        if country_codes == '*':
+            country_codes_str = "'%'"
+        else:
+            country_codes_str = ', '.join([f"'{item}'" for item in country_codes])
 
         if force:
-            status = f"pending.uuid::text LIKE ANY (ARRAY[{uuids_str}]) and"
+            pending = f""
         else:
-            status = f"pending.uuid::text LIKE ANY (ARRAY[{uuids_str}]) and pending.status = '{PendingStatus.pending.name}' and"
+            pending = f" and pending.status = '{PendingStatus.pending.name}'"
 
         cursor = self.conn.cursor()
-        query = f"SELECT uuid, name, legal_name, category_groups_list, founded_on FROM pending " \
-                f"WHERE {status} source = '{DataSource.crunchbase.name}' " \
+        query = f"SELECT uuid, name, legal_name, country_code, category_groups_list, founded_on FROM pending " \
+                f"WHERE source = '{DataSource.crunchbase.name}' and " \
+                f"founded_on >= '{fr.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+                f"founded_on <= '{to.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+                f"category_groups_list::text ILIKE ANY (ARRAY[{category_groups_list_str}]) and " \
+                f"country_code::text ILIKE ANY (ARRAY[{country_codes_str}]) and " \
+                f"uuid::text LIKE ANY (ARRAY[{uuids_str}])" \
+                f"{pending}" \
                 f"ORDER BY name ASC"
+
         cursor.execute(query)
         rows = cursor.fetchall()
 

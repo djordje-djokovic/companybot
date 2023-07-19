@@ -177,6 +177,7 @@ def create_organizations_table(drop_existing=False):
     if drop_existing:
         drop_table_query = f"DROP TABLE IF EXISTS {table_name}"
         cursor.execute(drop_table_query)
+        logger.info(f'Dropped postgreSQL table {table_name}')
 
     create_table_query = """
     CREATE TABLE IF NOT EXISTS {} (
@@ -228,6 +229,7 @@ def create_organizations_table(drop_existing=False):
     conn.commit()
     cursor.close()
     conn.close()
+    logger.info(f'Created postgreSQL table {table_name}')
 
 # pending table will contain all entries that need further processing by crunchbase REST API, companies house spider or linked in spider
 def create_pending_table(drop_existing=False):
@@ -246,6 +248,7 @@ def create_pending_table(drop_existing=False):
     if drop_existing:
         drop_table_query = f"DROP TABLE IF EXISTS {table_name}"
         cursor.execute(drop_table_query)
+        logger.info(f'Dropped postgreSQL table {table_name}')
 
     create_table_query = """
         CREATE TABLE IF NOT EXISTS {} (
@@ -253,6 +256,7 @@ def create_pending_table(drop_existing=False):
             uuid_parent UUID NOT NULL,
             name TEXT NOT NULL,
             legal_name TEXT,
+            country_code TEXT,
             category_groups_list TEXT[] NOT NULL,
             founded_on TIMESTAMP,
             source TEXT NOT NULL,
@@ -268,6 +272,7 @@ def create_pending_table(drop_existing=False):
     conn.commit()
     cursor.close()
     conn.close()
+    logger.info(f'Created postgreSQL table {table_name}')
 
 def create_data_table(drop_existing=False):
     conn = psycopg2.connect(
@@ -285,6 +290,7 @@ def create_data_table(drop_existing=False):
     if drop_existing:
         drop_table_query = f"DROP TABLE IF EXISTS {table_name}"
         cursor.execute(drop_table_query)
+        logger.info(f'Dropped postgreSQL table {table_name}')
 
     create_table_query = """
             CREATE TABLE IF NOT EXISTS {} (
@@ -304,6 +310,7 @@ def create_data_table(drop_existing=False):
     conn.commit()
     cursor.close()
     conn.close()
+    logger.info(f'Created postgreSQL table {table_name}')
 
 def clean_list_of_dictionaries(data):
     for d in data:
@@ -353,7 +360,7 @@ force:      Used to force the status update. if it is set to false or true and c
             a new record will be written. if it is set to false and a current record exists in the table, status will not be updated.
             if it is true and record exists, record status will be updated
 '''
-def write_organizations_pending(uuids, category_groups_list, country_code, source, status=PendingStatus.pending,
+def write_organizations_pending(uuids, category_groups_list, country_codes, source, status=PendingStatus.pending,
                                 fr=datetime.min, to=datetime.max, force=False):
     # write to organizations table
     conn = psycopg2.connect(
@@ -376,35 +383,37 @@ def write_organizations_pending(uuids, category_groups_list, country_code, sourc
     else:
         category_groups_list_str = ', '.join([f"'%{item}%'" for item in category_groups_list])
 
-    if country_code == '*':
-        country_code_str = "'%'"
+    if country_codes == '*':
+        country_codes_str = "'%'"
     else:
-        country_code_str = ', '.join([f"'{item}'" for item in country_code])
+        country_codes_str = ', '.join([f"'{item}'" for item in country_codes])
 
-    query = f"SELECT uuid, name, legal_name, category_groups_list, founded_on " \
+    query = f"SELECT uuid, name, legal_name, country_code, category_groups_list, founded_on " \
             f"FROM crunchbase_organizations " \
             f"WHERE founded_on >= '{fr.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
             f"founded_on <= '{to.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
             f"category_groups_list::text ILIKE ANY (ARRAY[{category_groups_list_str}]) and " \
-            f"country_code::text ILIKE ANY (ARRAY[{country_code_str}]) and " \
+            f"country_code::text ILIKE ANY (ARRAY[{country_codes_str}]) and " \
             f"uuid::text ILIKE ANY (ARRAY[{uuids_str}])"
 
     cursor.execute(query)
     rows = cursor.fetchall()
     dt = datetime.utcnow()
-    data  = []
+    data = []
+
     for row in rows:
         uuid = row[0]
         name = row[1]
         legal_name = row[2]
-        category_group_list = [element.strip() for element in row[3].split(',')]
+        country_code = row[3]
+        category_group_list = [element.strip() for element in row[4].split(',')]
         category_group_list_str = "{" + ",".join(category_group_list) + "}"
 
-        founded_on = row[4]
+        founded_on = row[5]
         version = ''
         created_at = dt
         updated_at = dt
-        d = {'uuid': uuid, 'uuid_parent': uuid, 'name': name, 'legal_name': legal_name, 'category_groups_list': category_group_list_str,
+        d = {'uuid': uuid, 'uuid_parent': uuid, 'name': name, 'legal_name': legal_name, 'country_code': country_code, 'category_groups_list': category_group_list_str,
              'founded_on': founded_on, 'source': source.name, 'status': status.name, 'version': version,
              'created_at': created_at, 'updated_at': updated_at}
         data.append(d)
@@ -739,19 +748,19 @@ def initialize(uuids_filter ='*', category_groups_list_filter ='*', country_code
         write_organizations_from_csv(organizations, logging=logging)
 
 
-    write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_code=country_code_filter,
-                                source=DataSource.crunchbase,
-                                status=PendingStatus.pending,
-                                fr=from_filter,
-                                to=to_filter,
-                                force=True)
+        write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_codes=country_code_filter,
+                                    source=DataSource.crunchbase,
+                                    status=PendingStatus.pending,
+                                    fr=from_filter,
+                                    to=to_filter,
+                                    force=True)
 
-    # write organizations to pending table with type = companies house
-    write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_code=country_code_filter,
-                                source=DataSource.companieshouse,
-                                status=PendingStatus.pending,
-                                fr=from_filter,
-                                to=to_filter,
-                                force=True)
+        # write organizations to pending table with type = companies house
+        write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_codes=country_code_filter,
+                                    source=DataSource.companieshouse,
+                                    status=PendingStatus.pending,
+                                    fr=from_filter,
+                                    to=to_filter,
+                                    force=True)
 
 logger = get_logger('CompanyBot')
