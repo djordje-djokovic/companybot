@@ -29,7 +29,7 @@ def main(
             uuids_filter='*', uuids_profile_filter='*',
             category_groups_list_filter='*', country_code_filter='*',
             from_filter=datetime.min, to_filter=datetime.max,
-            initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False, initialize_write_organizations=False,
+            initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False, initialize_write_organizations=False, initialize_pending_force=False,
             crunchbase_run=False, crunchbase_force=False,
             companieshouse_run=False, companieshouse_force=False,
             linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=['Founder', 'Director', 'Shareholder']):
@@ -38,7 +38,7 @@ def main(
         initialize(uuids_filter=uuids_filter,
                    category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
                    from_filter=from_filter, to_filter=to_filter,
-                   drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv, write_organizations=initialize_write_organizations
+                   drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv, write_organizations=initialize_write_organizations, pending_force=initialize_pending_force,
                    )
 
     if crunchbase_run:
@@ -119,7 +119,7 @@ if __name__ == '__main__':
             args.initialize_pending_force = False
 
     if args.initialize_run and args.initialize_drop_tables:
-        confirmation = input('Are you sure you want to drop the existing database tables? (y/n): ')
+        confirmation = input('Are you sure you want to drop the existing database tables? This would require all records to be repopulated again for all bots (y/n): ')
         if confirmation.lower() != 'y':
             args.initialize_drop_tables = False
 
@@ -140,6 +140,7 @@ if __name__ == '__main__':
         initialize_drop_tables=args.initialize_drop_tables,
         initialize_download_csv=args.initialize_download_csv,
         initialize_write_organizations=args.initialize_write_organizations,
+        initialize_pending_force=args.initialize_pending_force,
         crunchbase_run=args.crunchbase_run,
         crunchbase_force=args.crunchbase_force,
         companieshouse_run=args.companieshouse_run,

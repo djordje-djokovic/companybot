@@ -2,7 +2,7 @@ import time, requests, json
 from datetime import datetime
 
 import psycopg2
-from .common import PendingStatus, DataSource, logger
+from .common import PendingStatus, DataSource, logger, get_data_from_pending
 from .config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, CATEGORY_LIST_GROUPS, CRUNCHBASE_KEY
 class CrunchBaseBot():
     __version__ = 'CrunchBaseBot 0.9'
@@ -19,14 +19,14 @@ class CrunchBaseBot():
                 password=DB_PASSWORD,
                 port=DB_PORT
             )
-            data = self.get_data_from_pending(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
+            data = get_data_from_pending(DataSource.crunchbase.nameuuids_filter, '*', category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
             for row in data:
-                uuid = row[0]
-                name = row[1]
-                legal_name = row[2]
-                country_code = row[3]
-                category_groups_list = row[4]
-                founded_on = row[5]
+                uuid = row['uuid']
+                name = row['name']
+                legal_name = row['legal_name']
+                country_code = row['country_code']
+                category_groups_list = row['category_groups_list']
+                founded_on = row['founded_on']
                 json_rest_api = self.get_rest_api(row)
                 self.write(uuid, name, legal_name, country_code, category_groups_list, founded_on, json_rest_api)
                 time.sleep(2)
@@ -39,7 +39,7 @@ class CrunchBaseBot():
     # we separate card_ids and field_ids in two separate queries. the reason is that there is a limited character set that can be transferred from the server of 2048 and if we query everything we might get an error
     def get_rest_api(self, row):
 
-        uuid = row[0]
+        uuid = row['uuid']
 
         field_ids = 'acquirer_identifier,aliases,categories,category_groups,closed_on,company_type,contact_email,created_at,delisted_on,demo_days,description,diversity_spotlights,entity_def_id,equity_funding_total,exited_on,facebook,facet_ids,founded_on,founder_identifiers,funding_stage,funding_total,funds_total,hub_tags,identifier*,image_id,image_url,investor_identifiers,investor_stage,investor_type,ipo_status,last_equity_funding_total,last_equity_funding_type,last_funding_at,last_funding_total,last_funding_type,last_key_employee_change_date,last_layoff_date,layout_id,legal_name,linkedin,listed_stock_symbol,location_group_identifiers,location_identifiers,name,num_acquisitions,num_alumni,num_articles,num_current_advisor_positions,num_current_positions,num_diversity_spotlight_investments,num_employees_enum,num_enrollments,num_event_appearances,num_exits,num_exits_ipo,num_founder_alumni,num_founders,num_funding_rounds,num_funds,num_investments,num_investors,num_lead_investments,num_lead_investors,num_past_positions,num_portfolio_organizations,num_sub_organizations,operating_status,override_layout_id,owner_identifier,permalink,permalink_aliases,phone_number,program_application_deadline,program_duration,program_type,rank_delta_d30,rank_delta_d7,rank_delta_d90,rank_org,rank_principal,revenue_range,school_method,school_program,school_type,short_description,status,stock_exchange_symbol,stock_symbol,twitter,updated_at,uuid,valuation,valuation_date,website,website_url,went_public_on'
         url_field_ids = f'https://api.crunchbase.com/api/v4/entities/organizations/{uuid}?field_ids={field_ids}&user_key={CRUNCHBASE_KEY}'
@@ -101,48 +101,6 @@ class CrunchBaseBot():
 
         self.logger.info(f'Writing data successful from source: {DataSource.crunchbase.name} status: {PendingStatus.completed.name} company: {name}')
 
-    def get_data_from_pending(self, uuids='*', category_groups_list='*', country_codes='*', fr=datetime.max, to=datetime.max, force=False):
-
-        # uuids_str = ', '.join([f"'{item}'" for item in uuids]) if type(
-        #     uuids) == list else uuids.replace('*', "'%'")
-
-        if uuids == '*':
-            uuids_str = "'%'"
-        else:
-            uuids_str = ', '.join([f"'{item}'" for item in uuids])
-
-        if category_groups_list == '*':
-            category_groups_list_str = "'%'"
-        else:
-            category_groups_list_str = ', '.join([f"'%{item}%'" for item in category_groups_list])
-
-        if country_codes == '*':
-            country_codes_str = "'%'"
-        else:
-            country_codes_str = ', '.join([f"'{item}'" for item in country_codes])
-
-        if force:
-            pending = f""
-        else:
-            pending = f" and pending.status = '{PendingStatus.pending.name}'"
-
-        cursor = self.conn.cursor()
-        query = f"SELECT uuid, name, legal_name, country_code, category_groups_list, founded_on FROM pending " \
-                f"WHERE source = '{DataSource.crunchbase.name}' and " \
-                f"founded_on >= '{fr.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
-                f"founded_on <= '{to.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
-                f"category_groups_list::text ILIKE ANY (ARRAY[{category_groups_list_str}]) and " \
-                f"country_code::text ILIKE ANY (ARRAY[{country_codes_str}]) and " \
-                f"uuid::text LIKE ANY (ARRAY[{uuids_str}])" \
-                f"{pending}" \
-                f"ORDER BY name ASC"
-
-        cursor.execute(query)
-        rows = cursor.fetchall()
-
-        cursor.close()
-
-        return rows
 
 def run_crunchbase_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
                         from_filter=datetime.min, to_filter=datetime.max,

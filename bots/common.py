@@ -229,7 +229,7 @@ def create_organizations_table(drop_existing=False):
     conn.commit()
     cursor.close()
     conn.close()
-    logger.info(f'Created postgreSQL table {table_name}')
+    logger.info(f'Created postgreSQL table if existing {table_name}')
 
 # pending table will contain all entries that need further processing by crunchbase REST API, companies house spider or linked in spider
 def create_pending_table(drop_existing=False):
@@ -272,7 +272,7 @@ def create_pending_table(drop_existing=False):
     conn.commit()
     cursor.close()
     conn.close()
-    logger.info(f'Created postgreSQL table {table_name}')
+    logger.info(f'Created postgreSQL table if exisiting {table_name}')
 
 def create_data_table(drop_existing=False):
     conn = psycopg2.connect(
@@ -310,7 +310,7 @@ def create_data_table(drop_existing=False):
     conn.commit()
     cursor.close()
     conn.close()
-    logger.info(f'Created postgreSQL table {table_name}')
+    logger.info(f'Created postgreSQL table if existing {table_name}')
 
 def clean_list_of_dictionaries(data):
     for d in data:
@@ -579,9 +579,9 @@ def get_data(uuids='*'):
 
 class CustomFormatter(logging.Formatter):
     def __init__(self):
-        template = "{:<19} | {:<10} | {:<10} | {:<12} | {:<12} | {}"
+        template = "{:<19} | {:<10} | {:<10} | {:<20} | {:<30} | {}"
         self.header = template.format("timestamp", "levelname", "name", "module", "funcname", "message")
-        fmt = "%(asctime)s | %(levelname)10s | %(name)10s | %(module)12s | %(funcName)12s | %(message)s (%(filename)s:%(lineno)d)"
+        fmt = "%(asctime)s | %(levelname)10s | %(name)10s | %(module)20s | %(funcName)30s | %(message)s (%(filename)s:%(lineno)d)"
         super().__init__(fmt, datefmt="%Y-%m-%dT%H:%M:%S")
         self.first_record = True
 
@@ -701,14 +701,14 @@ def node_keys_crunchbase(download_path="C:\\Users\\Djordje\\Downloads\\crunchbas
 
 def initialize(uuids_filter ='*', category_groups_list_filter ='*', country_code_filter ='*',
                from_filter=datetime.min, to_filter=datetime.max,
-               download_crunchbase_csv=True, drop_tables=False, write_organizations=False):
+               download_crunchbase_csv=True, drop_tables=False, write_organizations=False, pending_force=False):
     """
     Sets up and populates a database with specific Crunchbase companies based on a provided filter.
 
     :param filter: A dictionary with keys to filter the organizations. Defaults to only include
                    'Artificial Intelligence' companies from 'GBR' (Great Britain).
     :type filter: dict
-    :param download_crunchbase_csv: If True, the function will download the raw csv data from Crunchbase.
+    :param downloa  d_crunchbase_csv: If True, the function will download the raw csv data from Crunchbase.
                                     This data is used to initially populate Crunchbase companies with uuid.
                                     Defaults to True.
     :type download_crunchbase_csv: bool
@@ -747,20 +747,60 @@ def initialize(uuids_filter ='*', category_groups_list_filter ='*', country_code
         # write the organizations from crunchbase csv file into database. we use that usually to create a subset
         write_organizations_from_csv(organizations, logging=logging)
 
-
         write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_codes=country_code_filter,
                                     source=DataSource.crunchbase,
                                     status=PendingStatus.pending,
                                     fr=from_filter,
                                     to=to_filter,
-                                    force=True)
+                                    force=pending_force)
 
-        # write organizations to pending table with type = companies house
-        write_organizations_pending(uuids=uuids_filter, category_groups_list=category_groups_list_filter, country_codes=country_code_filter,
-                                    source=DataSource.companieshouse,
-                                    status=PendingStatus.pending,
-                                    fr=from_filter,
-                                    to=to_filter,
-                                    force=True)
+def get_data_from_pending(source, uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*', fr=datetime.max, to=datetime.max, force=False):
+
+    # uuids_str = ', '.join([f"'{item}'" for item in uuids]) if type(
+    #     uuids) == list else uuids.replace('*', "'%'")
+
+    assert type(uuids_parent) == list or uuids_parent == '*'
+    assert type(uuids) == list or uuids == '*'
+    assert type(category_groups_list) == list or category_groups_list == '*'
+    assert type(country_codes) == list or country_codes == '*'
+    assert type(fr) == datetime
+    assert type(to) == datetime
+
+    conn = psycopg2.connect(
+                host=DB_HOST,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                port=DB_PORT
+            )
+
+    uuids_parent_str = "'%'" if uuids_parent == '*' else ', '.join([f"'{item}'" for item in uuids_parent])
+    uuids_str = "'%'" if uuids == '*' else ', '.join([f"'{item}'" for item in uuids])
+    category_groups_list_str = "'%'" if category_groups_list == '*' else ', '.join([f"'%{item}%'" for item in category_groups_list])
+    country_codes_str = "'%'" if country_codes == '*' else ', '.join([f"'{item}'" for item in country_codes])
+
+    pending = f"" if force else f" and pending.status = '{PendingStatus.pending.name}' "
+
+    cursor = conn.cursor()
+    query = f"SELECT uuid, uuid_parent, name, legal_name, country_code, category_groups_list, founded_on, \"data\".data as crunchbase_data " \
+            f"FROM pending " \
+            f"WHERE source = '{source}' and " \
+            f"founded_on >= '{fr.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+            f"founded_on <= '{to.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+            f"category_groups_list::text ILIKE ANY (ARRAY[{category_groups_list_str}]) and " \
+            f"country_code::text ILIKE ANY (ARRAY[{country_codes_str}]) and " \
+            f"uuid_parent::text LIKE ANY (ARRAY[{uuids_parent_str}]) and " \
+            f"uuid::text LIKE ANY (ARRAY[{uuids_str}])" \
+            f"{pending}" \
+            f"ORDER BY name ASC"
+
+    cursor.execute(query)
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+
+    cursor.close()
+    results = [dict(zip(columns, row)) for row in rows]
+
+    return results
 
 logger = get_logger('CompanyBot')
