@@ -71,6 +71,14 @@ class CompaniesHouseErrorCodes():
         }
     }
 
+    company_not_found = {
+    "error": {
+        "code": 110,
+        "message": "Company not found"
+        }
+    }
+
+
 class CompaniesHouseBot(scrapy.Spider):
 
     name = 'find-and-update.company-information.service.gov.uk'
@@ -249,8 +257,12 @@ class CompaniesHouseBot(scrapy.Spider):
 
                     r_company = session.get(url=url_company)
                     html_company = etree.HTML(r_company.content)
-                    companieshouse_founded_on_dt = datetime.strptime(CompaniesHouseBot.to_date(html_company.xpath("//dd[@id='company-creation-date']/text()")[0]),'%Y-%m-%d')
+
                     crunchbase_founded_on_dt = datetime.strptime(crunchbase_founded_on, '%Y-%m-%d')
+                    companieshouse_founded_on_dt = crunchbase_founded_on_dt
+                    if html_company.xpath("//dd[@id='company-creation-date']/text()"):
+                        companieshouse_founded_on_dt = datetime.strptime(CompaniesHouseBot.to_date(html_company.xpath("//dd[@id='company-creation-date']/text()")[0]),'%Y-%m-%d')
+
 
                     is_match_founded_fuzzy = abs((crunchbase_founded_on_dt - companieshouse_founded_on_dt).days) <= 365
 
@@ -311,22 +323,22 @@ class CompaniesHouseBot(scrapy.Spider):
                         founders_lower = [x.lower() for x in crunchbase_founder_names]
                         matching_score = CompaniesHouseBot.calculate_matching_score(officers_lower, founders_lower)
                         if matching_score >= score:
-                            logger.info(f'successful match by FOUNDER NAME and DATE {json.dumps(msg)}')
+                            logger.info(f'company: {crunchbase_company_name} successful match by FOUNDER NAME and DATE {json.dumps(msg)}')
                             return id_company, url_company
                         else:
-                            logger.info(f'unsuccessful match by FOUNDER NAME and DATE {json.dumps(msg)}')
+                            logger.info(f'company: {crunchbase_company_name} unsuccessful match by FOUNDER NAME and DATE {json.dumps(msg)}')
                     # match by founding date
                     elif is_match_founded_fuzzy and is_match_company_fuzzy_strong:
-                        logger.info(f'successful match by COMPANY NAME and DATE {json.dumps(msg)}')
+                        logger.info(f'company: {crunchbase_company_name} successful match by COMPANY NAME and DATE {json.dumps(msg)}')
                         return id_company, url_company
                     elif is_match_company_name_exact:
-                        logger.info(f'successful match by COMPANY NAME {json.dumps(msg)}')
+                        logger.info(f'company: {crunchbase_company_name} successful match by COMPANY NAME {json.dumps(msg)}')
                         return id_company, url_company
                     else:
-                        logger.info(f'unsuccessful match by COMPANY NAME and DATE {json.dumps(msg)}')
+                        logger.info(f'company: {crunchbase_company_name} unsuccessful match by COMPANY NAME and DATE {json.dumps(msg)}')
 
         except Exception as ex:
-            logger.error(f'{str(ex)}')
+            logger.error(f'company: {crunchbase_company_name} {str(ex)}')
 
         return None
 
@@ -373,7 +385,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
     def parse_insolvency(self, response):
 
-        logger.info(f'parse_insolvency. company:{self.crunchbase_company_name} url: {response.request.url}')
+        logger.info(f'company: {self.crunchbase_company_name} url: {response.request.url}')
 
         insolvency_dict = {}
 
@@ -412,8 +424,8 @@ class CompaniesHouseBot(scrapy.Spider):
 
         self.parse_group_count += 1
 
-        logger.info(f'parse_insolvency completed. count: {self.parse_group_count}')
-        logger.debug(f'parse_insolvency completed. data: {json.dumps(insolvency_dict)}')
+        logger.info(f'company: {self.crunchbase_company_name} completed. count: {self.parse_group_count}')
+        logger.debug(f'company: {self.crunchbase_company_name} completed. data: {json.dumps(insolvency_dict)}')
 
         if self.parse_group_count == self.parse_group_num:
             self.finished(self.data)
@@ -421,7 +433,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
     def parse_company_info(self, response):
 
-        logger.info(f'parse_company_info. company: {self.crunchbase_company_name} url: {response.request.url}')
+        logger.info(f'company: {self.crunchbase_company_name} url: {response.request.url}')
 
         company_dict = {}
         company_dict['company_name'] = self.strip(response.xpath(f'//p[@class="heading-xlarge"]/text()').get()).title()
@@ -447,15 +459,15 @@ class CompaniesHouseBot(scrapy.Spider):
         self.data['properties'].update(company_dict)
 
         self.parse_group_count += 1
-        logger.info(f'parse_company_info completed. count: {self.parse_group_count}')
-        logger.debug(f'parse_company_info completed. data: {json.dumps(company_dict)}')
+        logger.info(f'company: {self.crunchbase_company_name} completed. count: {self.parse_group_count}')
+        logger.debug(f'company: {self.crunchbase_company_name} completed. data: {json.dumps(company_dict)}')
         if self.parse_group_count == self.parse_group_num:
             self.finished(self.data)
             if self.callback_finish: self.callback_finish(self.data)
 
     def parse_officers(self, response):
 
-        logger.info(f'parse_officers. company: {self.crunchbase_company_name} url: {response.request.url}')
+        logger.info(f'company: {self.crunchbase_company_name} url: {response.request.url}')
 
         # print('parse_officers')
         # url = 'https://find-and-update.company-information.service.gov.uk/company/07101408/officers'
@@ -522,8 +534,8 @@ class CompaniesHouseBot(scrapy.Spider):
         self.data['cards']['officer'] = company_dict
 
         self.parse_group_count += 1
-        logger.info(f'parse_officers completed. count: {self.parse_group_count}')
-        logger.debug(f'parse_officers completed. data: {json.dumps(company_dict)}')
+        logger.info(f'company: {self.crunchbase_company_name} completed. count: {self.parse_group_count}')
+        logger.debug(f'company: {self.crunchbase_company_name} completed. data: {json.dumps(company_dict)}')
         if self.parse_group_count == self.parse_group_num:
             self.finished(self.data)
             if self.callback_finish: self.callback_finish(self.data)
@@ -568,8 +580,8 @@ class CompaniesHouseBot(scrapy.Spider):
             updated_at = dt
 
             persons = self.get_persons(self.data)
-            logger.info('get_persons')
-            logger.debug(f'get_persons. data: {json.dumps(persons)}')
+            logger.info(f'company: {self.crunchbase_company_name} get_persons')
+            logger.debug(f'company: {self.crunchbase_company_name} get_persons. data: {json.dumps(persons)}')
 
             for item in persons['items']:
                 profile_name = item['name'].title()
@@ -590,13 +602,13 @@ class CompaniesHouseBot(scrapy.Spider):
                 cursor.execute(query_pending_linkedin, values_pending_companieshouse)
 
         except psycopg2.Error as e:
-            logger.error(f"write executing queries: {str(e)}")
+            logger.error(f"company: {self.crunchbase_company_name} write executing queries: {str(e)}")
             self.conn.rollback()
         except Exception as e:
-            logger.error(f"write: {str(e)}")
+            logger.error(f"company: {self.crunchbase_company_name} write: {str(e)}")
         else:
             self.conn.commit()
-            logger.info(f'Writing data successful from source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} company: {name}')
+            logger.info(f'company: {self.crunchbase_company_name} writing data successful from source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} company: {name}')
         finally:
             cursor.close()
 
@@ -729,7 +741,7 @@ class CompaniesHouseBot(scrapy.Spider):
     def finished(self, data):
         # self.get_persons(data)
         # get unique shareholder persons
-        logger.info('parse_finished')
+        logger.info(f'company: {self.crunchbase_company_name} parse_finished')
         # print('parse_before_write', json.dumps(self.data))
         if self.is_write_file:
             self.write_to_file()
@@ -742,7 +754,7 @@ class CompaniesHouseBot(scrapy.Spider):
     def parse_appointments(self, response):
 
         officer_name = self.strip(response.xpath('//h1[@id="officer-name"][@class="heading-xlarge"]/text()').get()).title()
-        logger.info(f'parse_appointments. company: {self.crunchbase_company_name} officer: {officer_name} [{self.parse_appointments_count}/{self.parse_appointments_num}] url: {response.request.url}')
+        logger.info(f'company: {self.crunchbase_company_name} officer: {officer_name} [{self.parse_appointments_count}/{self.parse_appointments_num}] url: {response.request.url}')
 
         appointment_dict = {}
         appointment_dict['name'] = response.meta.get('name').title()
@@ -792,12 +804,12 @@ class CompaniesHouseBot(scrapy.Spider):
         self.parse_appointments_count += 1
 
         logger.info(
-            f'parse_appointments. company completed: {self.crunchbase_company_name} [{self.parse_appointments_count}/{self.parse_appointments_num}] url: {response.request.url}')
+            f'company: {self.crunchbase_company_name} completed: {self.crunchbase_company_name} [{self.parse_appointments_count}/{self.parse_appointments_num}] url: {response.request.url}')
 
         if self.parse_appointments_count == self.parse_appointments_num:
             self.data['cards']['appointment']['items'] = sorted(self.data['cards']['appointment']['items'], key=lambda x: x['name'])
             self.parse_group_count += 1
-            logger.info(f'parse_appointments completed. count: {self.parse_group_count}')
+            logger.info(f'company: {self.crunchbase_company_name} completed. count: {self.parse_group_count}')
             if self.parse_group_count == self.parse_group_num:
                 self.finished(self.data)
                 if self.callback_finish: self.callback_finish(self.data)
@@ -807,7 +819,7 @@ class CompaniesHouseBot(scrapy.Spider):
         # yield {"key": 'appointment', 'value': officer_dict}
     def parse_filing(self, response):
 
-        logger.info(f'parse_filing company. company: {self.crunchbase_company_name} url: {response.request.url}')
+        logger.info(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} url: {response.request.url}')
 
         if not self.filing_dict:
             # self.filing_dict['company_name'] = self.strip(response.xpath(f'//p[@class="heading-xlarge"]/text()').get())
@@ -820,8 +832,8 @@ class CompaniesHouseBot(scrapy.Spider):
         if len(rows) <= 1: #means the table is not existing for this page and we return the stored data
             # since this is a recursive function. this is the last time it is called
             self.parse_group_count += 1
-            logger.info(f'parse_filing completed. count: {self.parse_group_count}')
-            logger.debug(f'parse_filing completed. data: {json.dumps(self.filing_dict)}')
+            logger.info(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} completed. count: {self.parse_group_count}')
+            logger.debug(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} data: {json.dumps(self.filing_dict)}')
             if self.parse_group_count == self.parse_group_num:
                 self.finished(self.data)
                 if self.callback_finish: self.callback_finish(self.data)
@@ -887,22 +899,23 @@ class CompaniesHouseBot(scrapy.Spider):
                         elif 'incorporation' in description.lower():
                             update = True
                             incorporation = self.parse_incorporation_ocr(url, received_dt, self.poppler_path)
-                            if 'ERROR' not in incorporation:
+                            if 'error' not in incorporation:
                                 self.data['cards']['incorporation']['url'] = url
                                 self.data['cards']['incorporation']['received_date'] = received_dt
                                 self.data['cards']['incorporation']['update'] = update
                                 self.data['cards']['incorporation']['items'] = incorporation['INITIAL SHAREHOLDINGS']
-
+                            else:
+                                self.data['cards']['incorporation']['url'] = url
+                                self.data['cards']['incorporation']['error'] = incorporation['error']
                 i += 1
 
         except Exception as ex:
+            logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
             raise ValueError(str(ex), description, url)
 
         self.page_number_filing +=1
         next_page_url = f'https://find-and-update.company-information.service.gov.uk/company/{self.company_id}/filing-history?page={self.page_number_filing}'  #response.xpath(f'//ul[@class="pager"]/li[{self.page_number}]/a/@href').get()
         yield scrapy.Request(next_page_url, self.parse_filing)
-
-
 
     def parse_confirmation_statement_ocr(self, url, dt, poppler_path):
         # output_string = StringIO()
@@ -916,7 +929,7 @@ class CompaniesHouseBot(scrapy.Spider):
         # # Convert PDF to image
         # pages = convert_from_path(p)
 
-        logger.info(f'parse_confirmation_statement. date: {str(dt)} url: {url}')
+        logger.info(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} date: {str(dt)} url: {url}')
 
         r = session.get(url=url)
         pages = convert_from_bytes(r.content, poppler_path=poppler_path)
@@ -983,7 +996,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
         # this defines an empty page
         if len(sections['FULL DETAILS OF SHAREHOLDERS']) <= 5:
-            logger.info(f'parse_confirmation_statement completed. date: {str(dt)} url: {url}')
+            logger.info(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} completed. date: {str(dt)} url: {url}')
             return content
 
 
@@ -1033,8 +1046,8 @@ class CompaniesHouseBot(scrapy.Spider):
                             content['FULL DETAILS OF SHAREHOLDERS'].append({'shareholder': shareholder.strip(), 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                     i += 1
         except Exception as ex:
-            logger.error(f'parse_confirmation_statement. {str(line)} {str(lst)} {str(ex)}')
-        logger.info(f'parse_confirmation_statement. completed: {str(dt)} {url}')
+            logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
+        logger.info(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} completed. {str(dt)} {url}')
         return content
 
     def parse_annual_return_ocr(self, url, dt, poppler_path):
@@ -1049,7 +1062,7 @@ class CompaniesHouseBot(scrapy.Spider):
         # # Convert PDF to image
         # pages = convert_from_path(p)
 
-        logger.info(f'parse_annual_return: date: {str(dt)} url: {url}')
+        logger.info(f'company: {self.crunchbase_company_name} date: {str(dt)} url: {url}')
 
         r = session.get(url=url)
         pages = convert_from_bytes(r.content, poppler_path=poppler_path)
@@ -1201,7 +1214,7 @@ class CompaniesHouseBot(scrapy.Spider):
         # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\incorporation\\incorporation__9147492__20140725.pdf'
         # pages = convert_from_path(p)
 
-        logger.info(f'parse_incorporation. date: {str(dt)} url: {url}')
+        logger.info(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} date: {str(dt)} url: {url}')
 
         # Convert PDF to image
         r = session.get(url=url)
@@ -1254,7 +1267,6 @@ class CompaniesHouseBot(scrapy.Spider):
 
         if is_electronic_document == False:
             content = CompaniesHouseErrorCodes.document_not_readable
-            logger.debug(f'parse_incorporation_ocr. content: {str(content)}')
             return content
 
         # COMPANY INFORMATION ARE not parsed from this document since its information is available on website. the only additional data that this document posseses are historical addresses which are not important at this stage
@@ -1349,14 +1361,16 @@ class CompaniesHouseBot(scrapy.Spider):
 def run_companieshouse_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
                            from_filter=datetime.min, to_filter=datetime.max,
                            force=False, callback_finish=None):
-    run_companieshouse_bot_defer(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
+    run_companieshouse_bot_defer(uuids_filter, category_groups_list_filter, country_code_filter, from_filter, to_filter, force, callback_finish)
     reactor.run()
 '''
 if uuids are not supplied, all companies that are pending in pending table will be scraped
 if force is True, then pending status completed will be ignored and scraped again 
 '''
 @defer.inlineCallbacks
-def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*', from_filter=datetime.min, to_filter=datetime.max, force=False, callback_finish=None):
+def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
+                                 from_filter=datetime.min, to_filter=datetime.max,
+                                 force=False, callback_finish=None):
     # companies house crawler
     company_id = '07101408'
     # Set the log level to suppress warning messages
@@ -1389,7 +1403,7 @@ def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='
                    'founders_CB': crunchbase_founder_names,
                    }
 
-            logger.info(f'searching for: {json.dumps(msg)}')
+            logger.info(f'company: {crunchbase_company_name} searching for: {json.dumps(msg)}')
 
             search_results = CompaniesHouseBot.search(crunchbase_company_name, crunchbase_founder_names, crunchbase_founded_on, 10, 0.85, BRAVE_PATH)
 
@@ -1397,7 +1411,7 @@ def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='
                 company_id, company_url = search_results
                 msg['url'] = company_url
 
-                logger.info(f'found and starting to crawl: {json.dumps(msg)}.')
+                logger.info(f'company: {crunchbase_company_name} found and starting to crawl: {json.dumps(msg)}.')
                 # process = CrawlerProcess(settings)
                 # process.crawl(CompaniesHouseBot, company_id=company_id, crunchbase_company_name=row['name'], uuid=uuid, poppler_path=POPPLER_PATH, is_write_db=True, is_write_file=False, callback_finish=companieshouse_finished)
                 # process.start() # the script will block here until the crawling is finished
@@ -1409,12 +1423,60 @@ def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='
                 yield runner.crawl(CompaniesHouseBot, **args)
 
             else:
-                logger.warning(f'not found {json.dumps(msg)}.')
+                logger.warning(f'company: {crunchbase_company_name} not found {json.dumps(msg)}.')
+                json_rest_api = CompaniesHouseErrorCodes.company_not_found
+                write_failed(uuid, crunchbase_company_name, json_rest_api)
 
         except Exception as ex:
-            logger.error(f'{str(ex)}')
+            logger.error(f'company: {crunchbase_company_name} {str(ex)}')
 
     reactor.stop()
+
+def write_failed(uuid, crunchbase_company_name, json_rest_api):
+
+    conn = psycopg2.connect(
+                host=DB_HOST,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                port=DB_PORT
+            )
+
+    try:
+        cursor = conn.cursor()
+
+        dt = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+        data_str = json.dumps(json_rest_api)
+
+        d = {'uuid': uuid, 'uuid_parent': uuid, 'name': crunchbase_company_name, 'source': DataSource.companieshouse.name,
+             'version': CompaniesHouseBot.__version__, 'created_at': dt, 'updated_at': dt, 'data': data_str}
+        columns = d.keys()
+        values = tuple(d.values())
+
+        table_name = 'data'
+        # write data to db
+        query_data = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (uuid, source) DO UPDATE SET data = EXCLUDED.data, version = EXCLUDED.version, updated_at = EXCLUDED.updated_at"
+        # query_data = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ('{values[0]}', '{values[1]}', '{values[2]}', '{values[3]}', '{values[4]}', '{values[5]}', '{values[6]}')"
+        # print(f'query_data 1: {query_data}')
+        cursor.execute(query_data, values)
+
+        # update pending table
+        query_pending = f"UPDATE pending SET status = '{PendingStatus.completed.name}', updated_at = '{dt}'  WHERE uuid = '{uuid}' AND source = '{DataSource.companieshouse.name}'"
+
+        # print(f'query_pending 1: {query_data}')
+        cursor.execute(query_pending)
+
+    except psycopg2.Error as e:
+        logger.error(f"company: {crunchbase_company_name} write executing queries: {str(e)}")
+        conn.rollback()
+    except Exception as e:
+        logger.error(f"company: {crunchbase_company_name} write: {str(e)}")
+    else:
+        conn.commit()
+        logger.info(
+        f'company: {crunchbase_company_name} writing data successful from source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} company: {crunchbase_company_name}')
+    finally:
+        cursor.close()
 
 def run_companieshouse_bot_by_company_id(company_house_id='07101408', callback_finish=None):
     # companies house crawler

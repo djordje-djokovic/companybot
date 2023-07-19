@@ -579,9 +579,9 @@ def get_data(uuids='*'):
 
 class CustomFormatter(logging.Formatter):
     def __init__(self):
-        template = "{:<19} | {:<10} | {:<10} | {:<20} | {:<30} | {}"
+        template = "{:<19} | {:<10} | {:<10} | {:<20} | {:<35} | {}"
         self.header = template.format("timestamp", "levelname", "name", "module", "funcname", "message")
-        fmt = "%(asctime)s | %(levelname)10s | %(name)10s | %(module)20s | %(funcName)30s | %(message)s (%(filename)s:%(lineno)d)"
+        fmt = "%(asctime)s | %(levelname)10s | %(name)10s | %(module)20s | %(funcName)35s | %(message)s (%(filename)s:%(lineno)d)"
         super().__init__(fmt, datefmt="%Y-%m-%dT%H:%M:%S")
         self.first_record = True
 
