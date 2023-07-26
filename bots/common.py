@@ -5,6 +5,7 @@ from datetime import datetime
 from dateutil import parser as date_parser
 from enum import Enum
 import re, psycopg2
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from psycopg2.extras import execute_values
 import csv, numpy as np
 import scrapy, os, json, logging, requests
@@ -143,19 +144,19 @@ def get_organizations_from_crunchbase_csv(uuids_filter, category_groups_list_fil
 def create_database():
     conn = psycopg2.connect(
         host=DB_HOST,
-        database=DB_NAME,
+        database="postgres",  # Connect to the default "postgres" database
         user=DB_USER,
         password=DB_PASSWORD,
-        port = DB_PORT
+        port=DB_PORT
     )
 
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+
     cursor = conn.cursor()
-    # Check if the "uni" database exists
     cursor.execute(f"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '{DB_NAME}'")
     database_exists = cursor.fetchone()
 
     if not database_exists:
-        # Create the "uni" database
         cursor.execute(f"CREATE DATABASE {DB_NAME}")
 
     cursor.close()

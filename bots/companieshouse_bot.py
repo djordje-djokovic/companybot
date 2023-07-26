@@ -109,9 +109,9 @@ class CompaniesHouseBot(scrapy.Spider):
         self.callback_finish = callback_finish
 
         self.data = {}
-        self.data['source'] = DataSource.companieshouse.name
-        self.data['cards'] = {}
         self.data['properties'] = {}
+        self.data['cards'] = {}
+        self.data['source'] = DataSource.companieshouse.name
         self.data['properties']['parsing_date'] = datetime.now().strftime('%Y-%m-%d')
 
         self.data['cards']['officer'] = {}
@@ -654,33 +654,33 @@ class CompaniesHouseBot(scrapy.Spider):
             officer_names = []
 
             for item in data['cards']['officer']['items']:
+                if len(item) > 0:
+                    full_name = item['name'].lower()
 
-                full_name = item['name'].lower()
+                    if CompaniesHouseBot.is_company(full_name) == False:
+                        profile_name_split = full_name.split(',')
+                        profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
 
-                if CompaniesHouseBot.is_company(full_name) == False:
-                    profile_name_split = full_name.split(',')
-                    profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
-
-                    if not officer_names:
-                        officer_names.append(full_name.lower())
-                        officers.append({'name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']],
-                             'date_of_birth': item['date_of_birth']})
-                    else:
-                        is_add = False
-                        for officer_name in officer_names:
-                            ratio = fuzz.token_sort_ratio(full_name.lower(), officer_name.lower())/100
-                            if ratio >= 0.8:
-                                if item['role'] not in officers[officer_names.index(full_name)]['occupation']:
-                                    officers[officer_names.index(full_name)]['occupation'].append(item['role'])
-                            else:
-                                if full_name.lower() not in officer_names:
-                                    officers.append({'name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']], 'date_of_birth': item['date_of_birth']})
-                                    is_add = True
-                                elif item['role'] not in officers[officer_names.index(full_name)]['occupation']:
-                                    officers[officer_names.index(full_name)]['occupation'].append(item['role'])
-                            if is_add:
-                                officer_names.append(full_name.lower())
-                                break
+                        if not officer_names:
+                            officer_names.append(full_name.lower())
+                            officers.append({'name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']],
+                                 'date_of_birth': item['date_of_birth']})
+                        else:
+                            is_add = False
+                            for officer_name in officer_names:
+                                ratio = fuzz.token_sort_ratio(full_name.lower(), officer_name.lower())/100
+                                if ratio >= 0.8:
+                                    if item['role'] not in officers[officer_names.index(full_name)]['occupation']:
+                                        officers[officer_names.index(full_name)]['occupation'].append(item['role'])
+                                else:
+                                    if full_name.lower() not in officer_names:
+                                        officers.append({'name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']], 'date_of_birth': item['date_of_birth']})
+                                        is_add = True
+                                    elif item['role'] not in officers[officer_names.index(full_name)]['occupation']:
+                                        officers[officer_names.index(full_name)]['occupation'].append(item['role'])
+                                if is_add:
+                                    officer_names.append(full_name.lower())
+                                    break
             officers = sorted(officers, key=lambda x: x['name'])
 
             # join shareholding and officer persons together
@@ -700,17 +700,18 @@ class CompaniesHouseBot(scrapy.Spider):
             founders = []
             founder_names = []
             for item in data['cards']['incorporation']['items']:
-                name = item['name'].lower()
-                if CompaniesHouseBot.is_company(name) == False:
-                    if name not in founder_names:
-                        full_name = item['name'].split(
-                            ' ')  # need to rotate first and last names to make it the same as shareholding
-                        first_names = full_name[0:len(full_name) - 1]
-                        first_names = [s.capitalize() for s in first_names]
-                        last_name = full_name[-1].title()
-                        full_name = last_name + ', ' + ' '.join(first_names)
-                        founders.append({'name': name.title(), 'full_name': full_name, 'occupation': ['Founder'], 'date_of_birth': None})
-                        founder_names.append(name)        # Perform fuzzy match
+                if len(item)>0:
+                    name = item['name'].lower()
+                    if CompaniesHouseBot.is_company(name) == False:
+                        if name not in founder_names:
+                            full_name = item['name'].split(
+                                ' ')  # need to rotate first and last names to make it the same as shareholding
+                            first_names = full_name[0:len(full_name) - 1]
+                            first_names = [s.capitalize() for s in first_names]
+                            last_name = full_name[-1].title()
+                            full_name = last_name + ', ' + ' '.join(first_names)
+                            founders.append({'name': name.title(), 'full_name': full_name, 'occupation': ['Founder'], 'date_of_birth': None})
+                            founder_names.append(name)        # Perform fuzzy match
 
             for founder in founders:
                 match_found = False
@@ -1280,67 +1281,71 @@ class CompaniesHouseBot(scrapy.Spider):
         out_dict = {}
 
 
-        for key, lst in sections.items():
+        try:
+            for key, lst in sections.items():
 
-            i = 0
-            adress_parsing_started = False
-            line_lower_prev = ''
-            for line in lst:
-                # print(f'parse_incorporation: 4', line)
-                if key == 'INITIAL SHAREHOLDINGS':
-                    if skip_next == False:
-                        line_lower = line.lower()
+                i = 0
+                adress_parsing_started = False
+                line_lower_prev = ''
+                for line in lst:
+                    # print(f'parse_incorporation: 4', line)
+                    if key == 'INITIAL SHAREHOLDINGS':
+                        if skip_next == False:
+                            line_lower = line.lower()
 
-                        if 'name' in line_lower:
-                            key_list = ['name', 'address', 'class of share', 'number of shares', 'currency', 'amount unpaid', 'amount paid', 'nominal value of']
-                            if out_dict:
-                                content['INITIAL SHAREHOLDINGS'].append(out_dict)
-                            out_dict = {}
+                            if 'name' in line_lower:
+                                key_list = ['name', 'address', 'class of share', 'number of shares', 'currency', 'amount unpaid', 'amount paid', 'nominal value of']
+                                if out_dict:
+                                    content['INITIAL SHAREHOLDINGS'].append(out_dict)
+                                out_dict = {}
 
-                        out_parse, key_list = self.parse_initial_shareholdings_line(line_lower, key_list)
+                            out_parse, key_list = self.parse_initial_shareholdings_line(line_lower, key_list)
 
-                        if 'address' in out_parse:
-                            adress_parsing_started = True
-                            a = out_parse['address']
-                            a = self.remove_special_characters(a, self.special_characters)  # '"|?/_¬~#—-=:;,!%$£*&')
-                            address = [a]
+                            if 'address' in out_parse:
+                                adress_parsing_started = True
+                                a = out_parse['address']
+                                a = self.remove_special_characters(a, self.special_characters)  # '"|?/_¬~#—-=:;,!%$£*&')
+                                address = [a]
 
-                        elif '' in out_parse and address is not None:
-                            address_addition = out_parse[''].replace('each share', '')
-                            if address_addition.startswith('electronically'):
-                                pass
-                            else:
-                                address_addition = self.remove_special_characters(address_addition, self.special_characters)
-                                if address_addition:
-                                    address.append(address_addition)
-                                    out_dict['address'] = address
-                            if '' in out_parse: del out_parse['']
-                        elif '' in out_parse and len(out_parse) > 1:
-                            raise ValueError('problem detected.')
-                        elif '' not in out_parse:
-                            if 'nominal_value_of' in out_parse and out_parse['nominal_value_of'] == '':
-                                #check next line
-                                out_parse['nominal_value_of'] = lst[i + 1]
-                                skip_next = True
-                                i += 1
+                            elif '' in out_parse and address is not None:
+                                address_addition = out_parse[''].replace('each share', '')
+                                if address_addition.startswith('electronically'):
+                                    pass
+                                else:
+                                    address_addition = self.remove_special_characters(address_addition, self.special_characters)
+                                    if address_addition:
+                                        address.append(address_addition)
+                                        out_dict['address'] = address
                                 if '' in out_parse: del out_parse['']
-                                set_out_dict(out_parse)
-                                out_dict.update(out_parse)
-                                continue
+                            # elif '' in out_parse and len(out_parse) > 1:
+                            #     raise ValueError('problem detected.')
+                            elif '' not in out_parse:
+                                if 'nominal_value_of' in out_parse and out_parse['nominal_value_of'] == '':
+                                    #check next line
+                                    out_parse['nominal_value_of'] = lst[i + 1]
+                                    skip_next = True
+                                    i += 1
+                                    if '' in out_parse: del out_parse['']
+                                    set_out_dict(out_parse)
+                                    out_dict.update(out_parse)
+                                    continue
 
-                        if '' in out_parse: del out_parse['']
+                            if '' in out_parse: del out_parse['']
 
-                        if 'name' in line_lower_prev and adress_parsing_started == False:
-                            out_dict['name'] += ' ' + line_lower.upper()
+                            if 'name' in line_lower_prev and adress_parsing_started == False:
+                                out_dict['name'] += ' ' + line_lower.upper()
 
-                        set_out_dict(out_parse)
-                        out_dict.update(out_parse)
+                            set_out_dict(out_parse)
+                            out_dict.update(out_parse)
 
-                        line_lower_prev = line_lower
+                            line_lower_prev = line_lower
 
-                    skip_next = False
-                i += 1
-            content['INITIAL SHAREHOLDINGS'].append(out_dict)
+                        skip_next = False
+                    i += 1
+                content['INITIAL SHAREHOLDINGS'].append(out_dict)
+        except Exception as ex:
+            # found initial shareholdings
+            raise ValueError(ex)
         return content
         # print(json.dumps(content, sort_keys = True, indent = 4))
 
@@ -1350,13 +1355,16 @@ class CompaniesHouseBot(scrapy.Spider):
                                               'VENTURE', 'VENTURES', 'LP', 'LLP', 'L.P.', 'L.L.P.',
                                               'LLC', 'L.L.C.', 'STARTUP', 'GMBH', 'G.M.B.H', 'SARL', 'S.A.R.L', 'S.A.R.L.', 'FONDATION',
                                               'FOUNDATION', '&', 'TRUST', 'UNIVERSITY', 'SCHOOL', 'SUPPORT', 'SAS', 'S.A.S.',
-                                              'MANAGEMENT', 'NOMINEE', 'TRADING']):
-        for id in company_identifiers:
-            pattern = r"\b" + re.escape(id.lower()) + r"\b"
-            if re.search(pattern, name.lower()):
-                return True
+                                              'MANAGEMENT', 'NOMINEE', 'TRADING', 'B.V.', 'HOLDING']):
+        # Prepare pattern (escape each value to handle special regex characters, join with '|')
+        pattern = '|'.join(re.escape(value) for value in company_identifiers)
 
-        return False
+        # Create full pattern with custom "word boundaries", case insensitive
+        full_pattern = r'(?:(?<=\W)|^)(' + pattern + r')(?:(?=\W)|$)'
+        full_pattern = re.compile(full_pattern, re.IGNORECASE)
+
+        return bool(re.search(full_pattern, name))
+
 
 def run_companieshouse_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
                            from_filter=datetime.min, to_filter=datetime.max,
