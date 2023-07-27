@@ -1,9 +1,12 @@
-import os, time, json, scrapy, psycopg2
+import os, time, json, scrapy, psycopg2, random
 from datetime import datetime
 
 from bs4 import BeautifulSoup
 from geotext import GeoText
 from fuzzywuzzy import fuzz
+
+import chromedriver_autoinstaller
+import geckodriver_autoinstaller
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -12,8 +15,9 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as BraveService
+from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
+from webdriver_manager.core.os_manager import ChromeType
 
 from .config import LINKEDIN_EMAIL, LINKEDIN_PWD, BRAVE_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT
 from .common import PendingStatus, DataSource, logger
@@ -58,10 +62,11 @@ class LinkedInBot():
     __version__ = 'LinkedInBot 0.9'
     def __init__(self, user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
                  brave_path=r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
+                 headless=False,
                  callback_profile=None, callback_company=None, callback_finish=None):
         # Set the path to the Brave browser executable
         self.logger = logger
-
+        self.driver = None
         self.user_email = user_email
         self.user_pwd = user_pwd
         self.brave_path = brave_path
@@ -69,6 +74,7 @@ class LinkedInBot():
         self.callback_company = callback_company
         self.callback_finish = callback_finish
         self.companies = []
+        self.headless = headless
 
         self.conn = psycopg2.connect(
             host=DB_HOST,
@@ -79,61 +85,122 @@ class LinkedInBot():
         )
         self.conn.autocommit = False
 
-    def login(self, user_email, user_pwd):
-        # Launch Brave browser using Selenium
-        self.logger.info(f'Logging in. user: {user_email}')
-        options = webdriver.ChromeOptions()
+    def init_driver(self, headless=True, proxy=None, option=None, firefox=False):
+        """ initiate a chromedriver or firefoxdriver instance
+            --option : other option to add (str)
+        """
+        # Get the directory of the current script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go one directory up
+        parent_dir = os.path.dirname(script_dir)
+        # Specify the relative path to your profile
+        relative_path = 'data/browser'
+        # Combine the parent directory with the relative path
+        user_data_dir = os.path.join(parent_dir, relative_path)
+
+        if firefox:
+
+            options = webdriver.FirefoxOptions()
+            driver_path = geckodriver_autoinstaller.install()
+        else:
+            options = webdriver.ChromeOptions()
+            driver_path = chromedriver_autoinstaller.install()
+
         options.add_argument('--start-maximized')
-        # options.add_argument('--no-startup-window')
+        options.add_argument("accept-language=en-US,en")
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+        options.add_argument(f'user-data-dir={user_data_dir}')
+
         options.binary_location = self.brave_path
 
-        self.driver = webdriver.Chrome(service=BraveService(ChromeDriverManager(chrome_type=ChromeType.BRAVE).install()),
-                                  options=options)
+        if headless is True:
+            logger.info("Scraping on headless mode.")
+            options.add_argument('--disable-gpu')
+            options.headless = True
+        else:
+            options.headless = False
+        options.add_argument('log-level=3')
+        if proxy is not None:
+            options.add_argument('--proxy-server=%s' % proxy)
+            logger.info("Using proxy : ", proxy)
+        if option is not None:
+            options.add_argument(option)
 
+        if firefox:
+            driver = webdriver.Firefox(options=options)
+        else:
+            # driver = webdriver.Chrome(options=options)
+            driver = webdriver.Chrome(service=BraveService(ChromeDriverManager(driver_version='115.0.5790.102', chrome_type=ChromeType.BRAVE).install()),
+                                      options=options)
 
-        # Opening linkedIn's login page
-        self.driver.get("https://linkedin.com/uas/login")
+        driver.set_page_load_timeout(100)
+        return driver
 
-        # self.logger.info(f'Login before: {str(datetime.now())}')
-        # waiting for the page to load
-        wait = WebDriverWait(self.driver, 10)
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
-        # self.logger.info(f'Login after: {str(datetime.now())}')
+    def login(self, user_email, user_pwd, max_retries=3):
 
-        # entering username
-        username = self.driver.find_element(By.ID, "username")
+        self.driver = self.init_driver(headless=self.headless, proxy=None)
 
-        # In case of an error, try changing the element
-        # tag used here.
+        # check if login is required:
+        try:
+            self.driver.get('https://www.linkedin.com/feed')
+            WebDriverWait(self.driver, 10).until(EC.title_contains("Feed | LinkedIn"))
+            self.logger.info('Already logged in.')
+            return True
+        
+        except TimeoutException:
+            self.logger.info('Logging in required.')
 
-        # Enter Your Email Address
-        username.send_keys(user_email)
+        login_url = "https://linkedin.com/uas/login"
 
-        # entering password
-        pword = self.driver.find_element(By.ID, "password")
-        # In case of an error, try changing the element
-        # tag used here.
+        try:
 
-        # Enter Your Password
-        pword.send_keys(user_pwd)
+            self.driver.get(login_url)
 
-        # Clicking on the log in button
-        # Format (syntax) of writing XPath -->
-        # //tagname[@attribute='value']
-        self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        # In case of an error, try changing the
-        # # XPath used here.
-        time.sleep(20)
-        self.logger.info('Logging in completed.')
+            # Wait until body is loaded
+            WebDriverWait(self.driver, 120).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+
+            # Wait until username field is loaded and find it
+            username = WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.ID, "username")))
+            # Enter Your Email Address
+            username.send_keys(user_email)
+
+            # Wait until password field is loaded and find it
+            pword = WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.ID, "password")))
+            # Enter Your Password
+            pword.send_keys(user_pwd)
+
+            # Wait until submit button is loaded and find it
+            submit_button = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//button[@type='submit']")))
+            # Click the submit button
+            submit_button.click()
+            # Wait for an element that's known to appear on the next page
+            WebDriverWait(self.driver, 30).until(EC.title_contains("Feed | LinkedIn"))
+
+            self.logger.info('Logging in successful.')
+            return True
+
+        except TimeoutException:
+            if max_retries > 0:
+                self.logger.warning("Timed out waiting for page to load, retrying...")
+                self.login(user_email, user_pwd, max_retries - 1)
+            else:
+                self.logger.error(f"Page failed to load after {max_retries} attempts.")
+                return False
+
 
     @staticmethod
-    def get_data_from_pending(uuids_filter='*', uuids_parent_filter='*', category_groups_list_filter='*', country_code_filter='*', occupations_filter='*', force=False):
+    def get_data_from_pending(uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*',
+                              fr=datetime.max, to=datetime.max, occupations='*',
+                              force=False):
 
-        assert type(uuids_filter) == list or uuids_filter == '*'
-        assert type(uuids_parent_filter) == list or uuids_parent_filter == '*'
-        assert type(category_groups_list_filter) == list or category_groups_list_filter == '*'
-        assert type(country_code_filter) == list or country_code_filter == '*'
-        assert type(occupations_filter) == list or occupations_filter == '*'
+        assert type(uuids) == list or uuids == '*'
+        assert type(uuids_parent) == list or uuids_parent == '*'
+        assert type(category_groups_list) == list or category_groups_list == '*'
+        assert type(country_codes) == list or country_codes == '*'
+        assert type(fr) == datetime
+        assert type(to) == datetime
+        assert type(occupations) == list or occupations == '*'
 
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -145,19 +212,34 @@ class LinkedInBot():
 
         cursor = conn.cursor()
 
-        uuids_str = ', '.join([f"'{item}'" for item in uuids_filter]) if type(uuids_filter) == list else uuids_filter.replace('*', "'%'")
-        uuids_parent_str = ', '.join([f"'{item}'" for item in uuids_parent_filter]) if type(uuids_parent_filter) == list else uuids_parent_filter.replace('*', "'%'")
+        uuids_parent_str = "'%'" if uuids_parent == '*' else ', '.join([f"'{item}'" for item in uuids_parent])
+        uuids_str = "'%'" if uuids == '*' else ', '.join([f"'{item}'" for item in uuids])
+        category_groups_list_str = "'%'" if category_groups_list == '*' else ', '.join([f"'%{item}%'" for item in category_groups_list])
+        occupations_str = "'%'" if occupations == '*' else ', '.join([f"'{item}'" for item in occupations])
+        country_codes_str = "'%'" if country_codes == '*' else ', '.join([f"'{item}'" for item in country_codes])
 
-        if force:
-            status = f"pending.uuid::text LIKE ANY (ARRAY[{uuids_str}]) and pending.uuid_parent::text LIKE ANY (ARRAY[{uuids_parent_str}]) and"
+        pending = f"" if force else f" and pending_linkedin.status = '{PendingStatus.pending.name}' "
+
+        if occupations == "*":
+            occupations_filter = ""
         else:
-            status = f"pending.uuid::text LIKE ANY (ARRAY[{uuids_str}]) and pending.status = '{PendingStatus.pending.name}' and"
+            occupations_filter = f"pending_linkedin.category_groups_list::text[] && ARRAY[{occupations_str}]::text[] and "
 
-        query = f"SELECT pending.*, \"data\".data as companieshouse_data " \
-            f"FROM pending " \
-            f"INNER JOIN \"data\" ON pending.uuid_parent = \"data\".uuid AND \"data\".source = '{DataSource.companieshouse.name}' " \
-            f"WHERE {status} pending.source = '{DataSource.linkedin.name}' " \
-            f"ORDER BY pending.name COLLATE \"C\", pending.uuid_parent ASC"
+        query = f"SELECT pending_linkedin.*, pending_companieshouse.category_groups_list as companieshouse_category_groups_list, pending_companieshouse.name as companieshouse_name, \"data\".data as companieshouse_data " \
+            f"FROM pending as pending_linkedin " \
+            f"INNER JOIN \"data\" ON pending_linkedin.uuid_parent = \"data\".uuid AND \"data\".source = '{DataSource.companieshouse.name}' " \
+            f"INNER JOIN pending as pending_companieshouse ON pending_linkedin.uuid_parent = pending_companieshouse.uuid AND pending_companieshouse.source = '{DataSource.companieshouse.name}' " \
+            f"WHERE pending_linkedin.source = '{DataSource.linkedin.name}' and " \
+            f"pending_companieshouse.founded_on >= '{fr.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+            f"pending_companieshouse.founded_on <= '{to.strftime('%Y-%m-%dT%H:%M:%S')}' and " \
+            f"pending_companieshouse.category_groups_list::text ILIKE ANY (ARRAY[{category_groups_list_str}]) and " \
+            f"pending_companieshouse.country_code::text ILIKE ANY (ARRAY[{country_codes_str}]) and " \
+            f"{occupations_filter}" \
+            f"pending_linkedin.uuid_parent::text LIKE ANY (ARRAY[{uuids_parent_str}]) and " \
+            f"pending_linkedin.uuid::text LIKE ANY (ARRAY[{uuids_str}])" \
+            f"{pending}" \
+            f"ORDER BY pending_linkedin.uuid_parent, pending_linkedin.uuid ASC"
+
         # print(query)
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -173,34 +255,33 @@ class LinkedInBot():
 
         return result
 
-    def run(self, uuids_filter='*', uuids_parent_filter='*', category_groups_list_filter='*', country_code_filter='*', occupations_filter=['Founder', 'Director', 'Shareholder', 'Secretary'], force=False):
+    def run(self, uuids_filter='*', uuids_parent_filter='*', category_groups_list_filter='*', country_code_filter='*',
+            from_filter=datetime.min, to_filter=datetime.max,
+            occupations_filter=['Founder', 'Director', 'Shareholder'], force=False):
 
-        self.login(self.user_email, self.user_pwd)
+        success = self.login(self.user_email, self.user_pwd)
+        if success==False:
+            self.logger.warning('Could not login. Shutting down')
 
-        self.uuids_filter = uuids_filter
-        self.uuids_parent_filter = uuids_parent_filter
-        self.occupations_filter = occupations_filter
+        else:
+            self.from_filter = from_filter
+            self.to_filter = to_filter
+            self.uuids_filter = uuids_filter
+            self.uuids_parent_filter = uuids_parent_filter
+            self.occupations_filter = occupations_filter
 
-        data = self.get_data_from_pending(uuids_filter, uuids_parent_filter, category_groups_list_filter, country_code_filter, occupations_filter, force)
+            data = self.get_data_from_pending(uuids_filter, uuids_parent_filter, category_groups_list_filter, country_code_filter,
+                                              from_filter, to_filter, occupations_filter, force)
 
-        if not data:
-            self.logger.error('LinkedinBot::run no data found in pending')
+            if not data:
+                self.logger.error('LinkedinBot::run no data found in pending')
 
-        profiles_by_company = {}
-        for row in data:
-            company_name = row['companieshouse_data']['properties']['company_name']
-            if company_name not in profiles_by_company:
-                profiles_by_company[company_name] = []
-            profiles_by_company[company_name].append(row)
+            for row in data:
+                company_dict = {'properties': {}, 'cards': {}, 'source': DataSource.linkedin.name}
+                company_dict['properties']['parsing_date'] = datetime.now().strftime('%Y-%m-%d')
 
-        for company_name, rows in profiles_by_company.items():
-            company_dict = {'properties': {}, 'cards': {}, 'source': DataSource.linkedin.name}
-            company_dict['properties']['parsing_date'] = datetime.now().strftime('%Y-%m-%d')
-
-            company_item = {}
-            company_item['persons'] = [] # profiles
-
-            for row in rows:
+                company_item = {}
+                company_item['persons'] = [] # profiles
                 uuid = row['uuid']
                 uuid_parent = row['uuid_parent']
                 company_dict['properties']['uuid'] = uuid_parent
@@ -216,11 +297,7 @@ class LinkedInBot():
                 company_name_short = self.min_case(full_company_name)
                 search_name = name + ' ' + company_name_short
 
-                if set(occupations) & set(occupations_filter):  # check if lists have a superset of occupations
-                    # full_name = item['full_name']
-                    # profile_name_split = full_name.split(',')
-                    # profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
-                    # profile_name = profile_name.title()
+                try:
                     profile_url = self.search(search_name)
                     info = self.get_info(uuid, uuid_parent, company_id, name, full_name, full_company_name, occupations, profile_url)
                     profile_item.update(info)
@@ -260,19 +337,21 @@ class LinkedInBot():
                     company_item['persons'].append(profile_item)
                     self.write(uuid, uuid_parent, name, profile_item)
 
-                else:
-                    # we do not need to write profile item because it was never requested
-                    self.logger.info(f'Ignoring Profile since Occupation does not match: {search_name} {full_name} {str(occupations)} not in {str(occupations_filter)}')
+                    # time.sleep(5)
 
-            # time.sleep(5)
+                    self.remove_duplicates(company_item['persons'])
 
-            self.remove_duplicates(company_item['persons'])
+                    company_dict['cards'] = company_item
+                    if self.callback_company: self.callback_company(company_dict)
+                    self.companies.append(company_dict)
 
-            company_dict['cards'] = company_item
-            if self.callback_company: self.callback_company(company_dict)
-            self.companies.append(company_dict)
+                except Exception as ex:
+                    self.logger.error(f'Error for LinkedIn search {search_name} {ex}')
 
-        if self.callback_finish: self.callback_finish(self.companies)
+                finally:
+                    time.sleep(random.randint(2, 5))
+
+            if self.callback_finish: self.callback_finish(self.companies)
 
 
     def write(self, uuid, uuid_parent, name, json_rest_api):
@@ -382,8 +461,11 @@ class LinkedInBot():
         # search.send_keys(Keys.RETURN)
 
         # # Switch to the new window and wait for it to fully load
-        wait = WebDriverWait(self.driver, 10)
-        wait.until(EC.title_contains(profile_name))
+        # WebDriverWait(self.driver, 10).until(EC.title_contains(profile_name.lower()))
+
+        # Wait for the document's readyState to be 'complete'
+        WebDriverWait(self.driver, 10).until(lambda driver: driver.execute_script("return document.readyState") == "complete")
+
         # # wait.until(EC.presence_of_element_located((By.ID, 'element-id')))
 
         src = self.driver.page_source
@@ -736,19 +818,20 @@ def run_linkedin_bot_by_dict(profiles_by_companieshouse_id,
                      callback_profile=None, callback_company=None, callback_finish=None):
 
     linkedin_bot = LinkedInBot(user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
-                               brave_path=BRAVE_PATH, callback_profile=callback_profile,
+                               brave_path=BRAVE_PATH, headless=False, callback_profile=callback_profile,
                                callback_company=callback_company, callback_finish=callback_finish)
 
     linkedin_bot.run_from_dict(profiles_by_company_id=profiles_by_companieshouse_id, occupations_filter=occupations_filter)
 
 
 def run_linkedin_bot(uuids_profile_filter='*', uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
-                     occupations_filter=['Founder', 'Director', 'Shareholder'], force=False,
+                     from_filter=datetime.min, to_filter=datetime.max, occupations_filter=['Founder', 'Director', 'Shareholder'], force=False,
                      callback_profile=None, callback_company=None, callback_finish=None):
 
     linkedin_bot = LinkedInBot(user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
-                               brave_path=BRAVE_PATH, callback_profile=callback_profile,
+                               brave_path=BRAVE_PATH, headless=False, callback_profile=callback_profile,
                                callback_company=callback_company, callback_finish=callback_finish)
 
-    linkedin_bot.run(uuids_profile_filter=uuids_profile_filter, uuids_filter=uuids_filter, category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
+    linkedin_bot.run(uuids_filter=uuids_profile_filter, uuids_parent_filter=uuids_filter, category_groups_list_filter=category_groups_list_filter,
+                     country_code_filter=country_code_filter, from_filter=from_filter, to_filter=to_filter,
                      occupations_filter=occupations_filter, force=force)

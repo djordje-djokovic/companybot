@@ -805,3 +805,4 @@ def get_data_from_pending(source, uuids='*', uuids_parent='*', category_groups_l
     return results
 
 logger = get_logger('CompanyBot')
+logger.propagate = False

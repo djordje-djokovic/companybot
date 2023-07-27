@@ -11,7 +11,7 @@ from lxml import etree
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
+from webdriver_manager.core.os_manager import ChromeType
 from bs4 import BeautifulSoup
 
 from selenium import webdriver
@@ -135,6 +135,13 @@ class CompaniesHouseBot(scrapy.Spider):
         self.conn.autocommit = False
     @staticmethod
     def get_data_from_pending(uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*', fr=datetime.max, to=datetime.max, force=False):
+
+        assert type(uuids) == list or uuids == '*'
+        assert type(uuids_parent) == list or uuids_parent == '*'
+        assert type(category_groups_list) == list or category_groups_list == '*'
+        assert type(country_codes) == list or country_codes == '*'
+        assert type(fr) == datetime
+        assert type(to) == datetime
 
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -1355,7 +1362,7 @@ class CompaniesHouseBot(scrapy.Spider):
                                               'VENTURE', 'VENTURES', 'LP', 'LLP', 'L.P.', 'L.L.P.',
                                               'LLC', 'L.L.C.', 'STARTUP', 'GMBH', 'G.M.B.H', 'SARL', 'S.A.R.L', 'S.A.R.L.', 'FONDATION',
                                               'FOUNDATION', '&', 'TRUST', 'UNIVERSITY', 'SCHOOL', 'SUPPORT', 'SAS', 'S.A.S.',
-                                              'MANAGEMENT', 'NOMINEE', 'TRADING', 'B.V.', 'HOLDING']):
+                                              'MANAGEMENT', 'NOMINEE', 'TRADING', 'B.V.', 'HOLDING', 'INC']):
         # Prepare pattern (escape each value to handle special regex characters, join with '|')
         pattern = '|'.join(re.escape(value) for value in company_identifiers)
 
