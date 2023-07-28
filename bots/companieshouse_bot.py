@@ -315,7 +315,7 @@ class CompaniesHouseBot(scrapy.Spider):
                             officer_string = etree.tostring(officer_element, encoding="unicode")
                             if not '<dt>Registration number</dt>' in officer_string:
                                 # if it contains a registration_element, it is not an officer but a company. this does not work all the time as sometimes companies do not havea registration element
-                                if CompaniesHouseBot.is_company(officer_name) == False:
+                                if CompaniesHouseBot.is_organization(officer_name) == False:
                                     profile_name_split = officer_name.split(',')
                                     profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
                                     profile_name = profile_name.title()
@@ -444,6 +444,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
         company_dict = {}
         company_dict['company_name'] = self.strip(response.xpath(f'//p[@class="heading-xlarge"]/text()').get()).title()
+        company_dict['uuid'] = self.uuid
         company_dict['company_id'] = self.strip(response.xpath(f'//p[@id="company-number"]/strong/text()').get())
         company_dict['url'] = response.url
         company_dict['key'] = 'company'
@@ -642,10 +643,10 @@ class CompaniesHouseBot(scrapy.Spider):
             shareholder_names = []
             for date, shareholder_dict in data['cards']['shareholding'].items():
                 for item in shareholder_dict['items']:
-                    name = item['shareholder'].lower()
-                    if CompaniesHouseBot.is_company(name) == False:
+                    name = item['name'].lower()
+                    if CompaniesHouseBot.is_organization(name) == False:
                         if name not in shareholder_names:
-                            full_name = item['shareholder'].split(
+                            full_name = item['name'].split(
                                 ' ')  # need to rotate first and last names to make it the same as shareholding
                             first_names = full_name[0:len(full_name) - 1]
                             first_names = [s.capitalize() for s in first_names]
@@ -664,7 +665,7 @@ class CompaniesHouseBot(scrapy.Spider):
                 if len(item) > 0:
                     full_name = item['name'].lower()
 
-                    if CompaniesHouseBot.is_company(full_name) == False:
+                    if CompaniesHouseBot.is_organization(full_name) == False:
                         profile_name_split = full_name.split(',')
                         profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
 
@@ -709,7 +710,7 @@ class CompaniesHouseBot(scrapy.Spider):
             for item in data['cards']['incorporation']['items']:
                 if len(item)>0:
                     name = item['name'].lower()
-                    if CompaniesHouseBot.is_company(name) == False:
+                    if CompaniesHouseBot.is_organization(name) == False:
                         if name not in founder_names:
                             full_name = item['name'].split(
                                 ' ')  # need to rotate first and last names to make it the same as shareholding
@@ -912,6 +913,13 @@ class CompaniesHouseBot(scrapy.Spider):
                                 self.data['cards']['incorporation']['received_date'] = received_dt
                                 self.data['cards']['incorporation']['update'] = update
                                 self.data['cards']['incorporation']['items'] = incorporation['INITIAL SHAREHOLDINGS']
+                                self.data['cards']['shareholding'][received_dt] = {}
+                                self.data['cards']['shareholding'][received_dt]['source'] = 'Incorporation'
+                                self.data['cards']['shareholding'][received_dt]['url'] = url
+                                self.data['cards']['shareholding'][received_dt]['filing_date'] = received_dt
+                                self.data['cards']['shareholding'][received_dt]['received_date'] = received_dt
+                                self.data['cards']['shareholding'][received_dt]['update'] = update
+                                self.data['cards']['shareholding'][received_dt]['items'] = incorporation['INITIAL SHAREHOLDINGS']
                             else:
                                 self.data['cards']['incorporation']['url'] = url
                                 self.data['cards']['incorporation']['error'] = incorporation['error']
@@ -1050,8 +1058,8 @@ class CompaniesHouseBot(scrapy.Spider):
 
                             if shareholder == '':
                                 raise ValueError('shareholder not found')
-                            is_company = self.is_company(shareholder)
-                            content['FULL DETAILS OF SHAREHOLDERS'].append({'shareholder': shareholder.strip(), 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
+                            is_company = self.is_organization(shareholder)
+                            content['FULL DETAILS OF SHAREHOLDERS'].append({'name': shareholder.strip(), 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                     i += 1
         except Exception as ex:
             logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
@@ -1154,8 +1162,8 @@ class CompaniesHouseBot(scrapy.Spider):
                         if shareholder == '':
                             raise ValueError('shareholder not found')
 
-                        is_company = self.is_company(shareholder)
-                        content['FULL DETAILS OF SHAREHOLDERS'].append({'shareholder': shareholder.strip(), 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
+                        is_company = self.is_organization(shareholder)
+                        content['FULL DETAILS OF SHAREHOLDERS'].append({'name': shareholder.strip(), 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                 i += 1
 
         return content
@@ -1353,16 +1361,26 @@ class CompaniesHouseBot(scrapy.Spider):
         except Exception as ex:
             # found initial shareholdings
             raise ValueError(ex)
+
+        # change names to same as in shareholders dictionary
+        for item in content['INITIAL SHAREHOLDINGS']:
+            if 'class_of_share' in item:
+                item['share_type'] = item.pop('class_of_share')
+            if 'number_of_shares' in item:
+                item['shares'] = item.pop('number_of_shares')
+            is_company = self.is_organization(item['name'])
+            item['is_company'] = is_company
         return content
         # print(json.dumps(content, sort_keys = True, indent = 4))
 
     @staticmethod
-    def is_company(name, company_identifiers=['LIMITED', 'LTD', 'L.T.D.', 'PLC', 'P.L.C.', 'L.P.', 'GROUP', 'INVESTMENT',
+    def is_organization(name, company_identifiers=['LIMITED', 'LTD', 'L.T.D.', 'PLC', 'P.L.C.', 'L.P.', 'GROUP', 'INVESTMENT',
                                               'INVESTMENTS', 'CAPITAL', 'CORP', 'CORPORATION', 'COMPANY', 'PARTNER', 'EQUITY',
                                               'VENTURE', 'VENTURES', 'LP', 'LLP', 'L.P.', 'L.L.P.',
                                               'LLC', 'L.L.C.', 'STARTUP', 'GMBH', 'G.M.B.H', 'SARL', 'S.A.R.L', 'S.A.R.L.', 'FONDATION',
                                               'FOUNDATION', '&', 'TRUST', 'UNIVERSITY', 'SCHOOL', 'SUPPORT', 'SAS', 'S.A.S.',
-                                              'MANAGEMENT', 'NOMINEE', 'TRADING', 'B.V.', 'HOLDING', 'INC']):
+                                              'MANAGEMENT', 'NOMINEE', 'TRADING', 'B.V.', 'HOLDING', 'INC', 'LABS', 'TRUSTEE', 'TRUSTEES',
+                                              'VC', 'INC.', 'COUNCIL']):
         # Prepare pattern (escape each value to handle special regex characters, join with '|')
         pattern = '|'.join(re.escape(value) for value in company_identifiers)
 
@@ -1386,10 +1404,13 @@ if force is True, then pending status completed will be ignored and scraped agai
 def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
                                  from_filter=datetime.min, to_filter=datetime.max,
                                  force=False, callback_finish=None):
+
+
     # companies house crawler
     company_id = '07101408'
     # Set the log level to suppress warning messages
     settings = get_project_settings()
+
     data = CompaniesHouseBot.get_data_from_pending(uuids_filter, '*', category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
 
     # data = [data[8]]

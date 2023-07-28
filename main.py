@@ -5,12 +5,13 @@ from datetime import datetime
 from dateutil import parser as date_parser
 import json, logging, os, argparse
 
-from bots.config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH, CRUNCHBASE_KEY
+from bots.config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH, CRUNCHBASE_KEY, CATEGORY_LIST_GROUPS
 from bots.companieshouse_bot import run_companieshouse_bot, run_companieshouse_bot_by_company_id
 
 def companieshouse_finished(data):
     # handle completed requests here
-    print(json.dumps(data))
+    # print(json.dumps(data))
+    pass
 
 def linkedin_finish(companies):
     # print('linkedin_finish', json.dumps(companies))
@@ -32,7 +33,8 @@ def main(
             initialize_run=True, initialize_drop_tables=False, initialize_download_csv=False, initialize_write_organizations=False, initialize_pending_force=False,
             crunchbase_run=False, crunchbase_force=False,
             companieshouse_run=False, companieshouse_force=False,
-            linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=['Founder', 'Director', 'Shareholder']):
+            linkedin_run=False, linkedin_force=False, linkedin_occupations_filter=[['Founder'], ['Director', 'Shareholder']]):
+
 
     if initialize_run:
         initialize(uuids_filter=uuids_filter,
@@ -41,13 +43,16 @@ def main(
                    drop_tables=initialize_drop_tables, download_crunchbase_csv=initialize_download_csv, write_organizations=initialize_write_organizations, pending_force=initialize_pending_force,
                    )
 
+
     if crunchbase_run:
+
         # Query pending database to get all organizations for Crunchbase that need downloading. Use Crunchbase API
         # to create JSON type entries into the database. We do not want to use CSV data since it is not as verbose as REST API data.
         run_crunchbase_bot(uuids_filter=uuids_filter,
                            category_groups_list_filter=category_groups_list_filter, country_code_filter=country_code_filter,
                            from_filter=from_filter, to_filter=to_filter,
                            force=crunchbase_force)
+
 
     if companieshouse_run:
         # Query pending database to get all organizations for Companies House that need scraping.
@@ -57,7 +62,6 @@ def main(
                                from_filter=from_filter, to_filter=to_filter,
                                force=companieshouse_force,
                                callback_finish=companieshouse_finished)
-
     if linkedin_run:
         # Query pending database to get all profiles for LinkedIn that need scraping.
         # Use LinkedIn spider for this and persons table from Companies House organizations data.
@@ -69,12 +73,25 @@ def main(
                          callback_company=linkedin_company, callback_profile=linkedin_profile,
                          callback_finish=linkedin_finish)
 
+
 if __name__ == '__main__':
+
+    def parse_list_of_lists(input_string):
+        try:
+            # Split the input string by commas to get individual elements
+            elements = input_string.split(", ")
+            # Convert the flat list to a list of lists by splitting each element based on spaces
+            list_of_lists = [element.split() for element in elements]
+            return list_of_lists
+        except Exception as e:
+            raise argparse.ArgumentTypeError(
+                "Invalid input format. Please provide a list of lists separated by commas and spaces.")
+
     parser = argparse.ArgumentParser(description='CompanyBot Command Line Arguments')
 
     parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='Coumpany UUIDs filter')
     parser.add_argument('--uuids-profile-filter', nargs='+', default=['*'], help='Linkedin UUIDs profile filter')
-    parser.add_argument('--category-groups-list-filter', nargs='+', default=['Artificial Intelligence'], help='Company category group filter')
+    parser.add_argument('--category-groups-list-filter', nargs='+', default=['Artificial Intelligence'], help=f'Company category group filter from {str(CATEGORY_LIST_GROUPS)}')
     parser.add_argument('--country-code-filter', nargs='+', default=['GBR'], help='Company country code filter')
     parser.add_argument('--from-filter', type=date_parser.parse, default=datetime.min, help='Founding start date filter')
     parser.add_argument('--to-filter', type=date_parser.parse, default=datetime.max, help='Founding end date filter')
@@ -98,7 +115,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--linkedin-run', choices=['true', 'false'], default='false', help='Run the LinkedIn bot')
     parser.add_argument('--linkedin-force', choices=['true', 'false'], default='false', help='Force updating LinkedIn data')
-    parser.add_argument('--linkedin-occupations-filter', nargs='+', default=['Founder', 'Director', 'Shareholder'], help='LinkedIn occupations filter. Defines occupations for which profiles should be scraped.')
+    # parser.add_argument('--linkedin-occupations-filter', nargs='+', default=[, 'Shareholder'], help='LinkedIn occupations filter. Defines occupations for which profiles should be scraped.')
+    parser.add_argument("--linkedin-occupations-filter", type=parse_list_of_lists, nargs="?", default="Founder, Director Shareholder", help="List of lists of LinkedIn occupations filter. Each inside list element needs to match all list element values in the database or match the all next list elements in database. Defines occupations for which profiles should be scraped.")
 
     args = parser.parse_args()
 
@@ -185,5 +203,14 @@ if __name__ == '__main__':
     #                      callback_company=linkedin_company, callback_profile=linkedin_profile, callback_finish=linkedin_finish,
     #                      logger=logger)
 
-    d = get_data(uuids=uuids_company_filter)
-    print(json.dumps(d))
+    # d = get_data(uuids=uuids_company_filter)
+    # print(json.dumps(d))
+
+    # 'Administrative Services', 'Advertising', 'Agriculture and Farming', 'Apps', 'Artificial Intelligence',
+    #  'Biotechnology', 'Clothing and Apparel', 'Commerce and Shopping', 'Community and Lifestyle', 'Consumer Electronics',
+    #  'Consumer Goods', 'Content and Publishing', 'Data and Analytics', 'Design', 'Education', 'Energy', 'Events',
+    #  'Financial Services', 'Food and Beverage', 'Gaming', 'Government and Military', 'Hardware', 'Health Care',
+    #  'Information Technology', 'Internet Services', 'Manufacturing', 'Media and Entertainment',
+    #  'Messaging and Telecommunications', 'Mobile', 'Music and Audio', 'Natural Resources', 'Navigation and Mapping', 'Other', 'Payments',
+    #  'Platforms', 'Privacy and Security', 'Professional Services', 'Real Estate', 'Sales and Marketing',
+    #  'Science and Engineering', 'Software', 'Sports', 'Sustainability', 'Transportation', 'Travel and Tourism', 'Video'

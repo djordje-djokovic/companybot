@@ -783,7 +783,7 @@ def get_data_from_pending(source, uuids='*', uuids_parent='*', category_groups_l
     pending = f"" if force else f" and pending.status = '{PendingStatus.pending.name}' "
 
     cursor = conn.cursor()
-    query = f"SELECT uuid, uuid_parent, name, legal_name, country_code, category_groups_list, founded_on, \"data\".data as crunchbase_data " \
+    query = f"SELECT uuid, uuid_parent, name, legal_name, country_code, category_groups_list, founded_on " \
             f"FROM pending " \
             f"WHERE source = '{source}' and " \
             f"founded_on >= '{fr.strftime('%Y-%m-%dT%H:%M:%S')}' and " \

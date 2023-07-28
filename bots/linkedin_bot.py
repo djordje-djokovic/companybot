@@ -56,6 +56,9 @@ class LinkedInErrorCodes():
     def __init__(self):
         pass
 
+class LoginFailedException(Exception):
+    pass
+
 # linkedin bot we do not use scrapy since we want to download profiles in a fully controller manner one by one.
 # i could not make that work in scrapy
 class LinkedInBot():
@@ -136,17 +139,15 @@ class LinkedInBot():
         driver.set_page_load_timeout(100)
         return driver
 
-    def login(self, user_email, user_pwd, max_retries=3):
-
-        self.driver = self.init_driver(headless=self.headless, proxy=None)
+    def login(self, driver, user_email, user_pwd, max_retries=3):
 
         # check if login is required:
         try:
-            self.driver.get('https://www.linkedin.com/feed')
-            WebDriverWait(self.driver, 10).until(EC.title_contains("Feed | LinkedIn"))
+            driver.get('https://www.linkedin.com/feed')
+            WebDriverWait(driver, 10).until(EC.title_contains("Feed | LinkedIn"))
             self.logger.info('Already logged in.')
-            return True
-        
+            return
+
         except TimeoutException:
             self.logger.info('Logging in required.')
 
@@ -154,45 +155,59 @@ class LinkedInBot():
 
         try:
 
-            self.driver.get(login_url)
+            driver.get(login_url)
 
             # Wait until body is loaded
-            WebDriverWait(self.driver, 120).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+            WebDriverWait(driver, 120).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
 
             # Wait until username field is loaded and find it
-            username = WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.ID, "username")))
-            # Enter Your Email Address
-            username.send_keys(user_email)
+            try:
+                username = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "username")))
+                # Enter Your Email Address
+                username.send_keys(user_email)
+            except TimeoutException:
+                self.logger.info("Username already entered. Just needs password.")
 
             # Wait until password field is loaded and find it
-            pword = WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.ID, "password")))
+            pword = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "password")))
             # Enter Your Password
             pword.send_keys(user_pwd)
 
             # Wait until submit button is loaded and find it
-            submit_button = WebDriverWait(self.driver, 10).until(
+            submit_button = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//button[@type='submit']")))
             # Click the submit button
             submit_button.click()
             # Wait for an element that's known to appear on the next page
-            WebDriverWait(self.driver, 30).until(EC.title_contains("Feed | LinkedIn"))
+            WebDriverWait(driver, 30).until(EC.title_contains("Feed | LinkedIn"))
 
             self.logger.info('Logging in successful.')
-            return True
+            return
 
         except TimeoutException:
             if max_retries > 0:
                 self.logger.warning("Timed out waiting for page to load, retrying...")
-                self.login(user_email, user_pwd, max_retries - 1)
+                self.login(driver, user_email, user_pwd, max_retries - 1)
             else:
                 self.logger.error(f"Page failed to load after {max_retries} attempts.")
-                return False
+                raise LoginFailedException('Login failed.')
 
 
     @staticmethod
     def get_data_from_pending(uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*',
                               fr=datetime.max, to=datetime.max, occupations='*',
                               force=False):
+
+        def create_occupation_sql_expression(list_of_lists_or_asterisk):
+            if type(list_of_lists_or_asterisk) == str and list_of_lists_or_asterisk == "*":
+                return ""
+
+            sql_expression = ""
+            for sublist in list_of_lists_or_asterisk:
+                if sql_expression:
+                    sql_expression += " or "
+                sql_expression += f"ARRAY{sublist} <@ pending_linkedin.category_groups_list"
+            return f"({sql_expression}) and "
 
         assert type(uuids) == list or uuids == '*'
         assert type(uuids_parent) == list or uuids_parent == '*'
@@ -220,10 +235,7 @@ class LinkedInBot():
 
         pending = f"" if force else f" and pending_linkedin.status = '{PendingStatus.pending.name}' "
 
-        if occupations == "*":
-            occupations_filter = ""
-        else:
-            occupations_filter = f"pending_linkedin.category_groups_list::text[] && ARRAY[{occupations_str}]::text[] and "
+        occupations_filter = create_occupation_sql_expression(occupations)
 
         query = f"SELECT pending_linkedin.*, pending_companieshouse.category_groups_list as companieshouse_category_groups_list, pending_companieshouse.name as companieshouse_name, \"data\".data as companieshouse_data " \
             f"FROM pending as pending_linkedin " \
@@ -257,13 +269,15 @@ class LinkedInBot():
 
     def run(self, uuids_filter='*', uuids_parent_filter='*', category_groups_list_filter='*', country_code_filter='*',
             from_filter=datetime.min, to_filter=datetime.max,
-            occupations_filter=['Founder', 'Director', 'Shareholder'], force=False):
+            occupations_filter=[['Founder'], ['Director', 'Shareholder']], force=False):
 
-        success = self.login(self.user_email, self.user_pwd)
-        if success==False:
-            self.logger.warning('Could not login. Shutting down')
+        self.driver = self.init_driver(headless=self.headless, proxy=None)
+        try:
+            self.login(self.driver, self.user_email, self.user_pwd)
 
-        else:
+            wait_from = 20
+            wait_to = 80
+
             self.from_filter = from_filter
             self.to_filter = to_filter
             self.uuids_filter = uuids_filter
@@ -276,7 +290,9 @@ class LinkedInBot():
             if not data:
                 self.logger.error('LinkedinBot::run no data found in pending')
 
+            i = 0
             for row in data:
+                i += 1
                 company_dict = {'properties': {}, 'cards': {}, 'source': DataSource.linkedin.name}
                 company_dict['properties']['parsing_date'] = datetime.now().strftime('%Y-%m-%d')
 
@@ -298,61 +314,74 @@ class LinkedInBot():
                 search_name = name + ' ' + company_name_short
 
                 try:
-                    profile_url = self.search(search_name)
-                    info = self.get_info(uuid, uuid_parent, company_id, name, full_name, full_company_name, occupations, profile_url)
-                    profile_item.update(info)
-
-                    if profile_url is None:
-                        profile_item.update(LinkedInErrorCodes.profile_not_found)
-                        self.logger.warning(f'Profile not found. profile: {json.dumps(info)}')
+                    if CompaniesHouseBot.is_organization(name):
+                        self.logger.warning(f'{name} is an organization.')
                     else:
 
-                        experience = self.get_experience(profile_url)
+                        time.sleep(random.randint(wait_from * 2, wait_to * 2))
+                        self.logger.info(f'Searching for profile: {search_name} [{i}/{len(data)}] occupations: {str(occupations)}')
+                        profile_url = self.search(search_name)
+
+                        time.sleep(random.randint(wait_from, wait_to))
+                        info = self.get_info(uuid, uuid_parent, company_id, name, full_name, full_company_name, occupations, profile_url)
                         profile_item.update(info)
-                        info_name = info['name']
 
-                        self.logger.info(f'Attempting to parse: linkedin_name:{info_name} search_name:{search_name} full_name:{full_name} profile_url:{profile_url}')
+                        if profile_url is None:
+                            profile_item.update(LinkedInErrorCodes.profile_not_found)
+                            self.logger.warning(f'Profile not found. profile: {json.dumps(info)}')
 
-                        # there are two things that can go wrong. when we search a profile name in linked in we will get almost
-                        # always a list of matches returned where the profiles are completely different persons.
-                        # we check names against companies house names with a fuzzy match
-                        if fuzz.token_sort_ratio(info['name'], name) >= 80:
-                            # secondly we need to check if the profile has aefined the company we are searching in the profile and check for this
-                            if self.fuzzy_organization_match(experience, company_name_short):
-                                education = self.get_education(profile_url)
-
-                                profile_item['experience'] = experience
-                                profile_item['education'] = education
-
-                                self.logger.info(f'Successfully matched Profile and Organization: {search_name} {info_name} {str(occupations)} {profile_url}')
-                                if self.callback_profile: self.callback_profile(profile_item)
-
-                            else:
-                                profile_item.update(LinkedInErrorCodes.profile_and_organization_not_matched_name_matched)
-                                self.logger.warning(f'Unuccessfully matched Profile and Organization although Name was matched: linkedin_name:{info_name} search_name:{search_name} full_name:{full_name} profile_url:{profile_url}')
                         else:
-                            profile_item.update(LinkedInErrorCodes.profile_companieshouse_linkedin_not_not_matched)
-                            self.logger.warning(f'Unuccessfully matched Companies House name and LinkedIn name: linkedin_name:{info_name} search_name:{search_name} full_name:{full_name} profile_url:{profile_url}')
+                            time.sleep(random.randint(wait_from, wait_to))
+                            experience = self.get_experience(profile_url)
+                            profile_item.update(info)
+                            info_name = info['name']
 
-                    company_item['persons'].append(profile_item)
-                    self.write(uuid, uuid_parent, name, profile_item)
+                            self.logger.info(f'Attempting to parse: linkedin_name:{info_name} search_name:{search_name} full_name:{full_name} profile_url:{profile_url}')
 
-                    # time.sleep(5)
+                            # there are two things that can go wrong. when we search a profile name in linked in we will get almost
+                            # always a list of matches returned where the profiles are completely different persons.
+                            # we check names against companies house names with a fuzzy match
+                            if fuzz.token_sort_ratio(info['name'], name) >= 80:
+                                # secondly we need to check if the profile has aefined the company we are searching in the profile and check for this
+                                if self.fuzzy_organization_match(experience, company_name_short):
+                                    time.sleep(random.randint(wait_from, wait_to))
+                                    education = self.get_education(profile_url)
 
-                    self.remove_duplicates(company_item['persons'])
+                                    profile_item['experience'] = experience
+                                    profile_item['education'] = education
 
-                    company_dict['cards'] = company_item
-                    if self.callback_company: self.callback_company(company_dict)
-                    self.companies.append(company_dict)
+                                    self.logger.info(f'Successfully matched Profile and Organization: {search_name} {info_name} {str(occupations)} {profile_url}')
+                                    if self.callback_profile: self.callback_profile(profile_item)
+
+                                else:
+                                    profile_item.update(LinkedInErrorCodes.profile_and_organization_not_matched_name_matched)
+                                    self.logger.warning(f'Unuccessfully matched Profile and Organization although Name was matched: linkedin_name:{info_name} search_name:{search_name} full_name:{full_name} profile_url:{profile_url}')
+                            else:
+                                profile_item.update(LinkedInErrorCodes.profile_companieshouse_linkedin_not_not_matched)
+                                self.logger.warning(f'Unuccessfully matched Companies House name and LinkedIn name: linkedin_name:{info_name} search_name:{search_name} full_name:{full_name} profile_url:{profile_url}')
+
+                        company_item['persons'].append(profile_item)
+                        self.write(uuid, uuid_parent, name, profile_item)
+
+                        # time.sleep(5)
+
+                        self.remove_duplicates(company_item['persons'])
+
+                        company_dict['cards'] = company_item
+                        if self.callback_company: self.callback_company(company_dict)
+                        self.companies.append(company_dict)
 
                 except Exception as ex:
-                    self.logger.error(f'Error for LinkedIn search {search_name} {ex}')
+
+                    self.logger.error(f'Error for LinkedIn search {search_name} error: {str(ex)}')
 
                 finally:
-                    time.sleep(random.randint(2, 5))
+                    pass
 
-            if self.callback_finish: self.callback_finish(self.companies)
+                if self.callback_finish: self.callback_finish(self.companies)
 
+        except LoginFailedException as lf:
+            self.logger.error(str(lf))
 
     def write(self, uuid, uuid_parent, name, json_rest_api):
 
@@ -451,8 +480,6 @@ class LinkedInBot():
 
     def search(self, profile_name):
 
-        # find user by name
-        self.logger.info(f'Searching for profile: {profile_name}')
         profile_name_search = profile_name.lower().replace(' ', '%20')
         url = f'https://www.linkedin.com/search/results/people/?keywords={profile_name_search}'
         self.driver.get(url)
@@ -469,6 +496,9 @@ class LinkedInBot():
         # # wait.until(EC.presence_of_element_located((By.ID, 'element-id')))
 
         src = self.driver.page_source
+        if "Sign" in self.driver.title: # we were logged out and need to try to login again
+            self.login(self.driver, self.user_email, self.user_pwd)
+
         # Now using beautiful soup
         soup = BeautifulSoup(src, 'lxml')
 
@@ -476,13 +506,14 @@ class LinkedInBot():
         list_element = soup.find_all('li', {'class': 'reusable-search__result-container'})
         # take first element in list
         if list_element:
-            link = list_element[0].find('a', {'class': 'app-aware-link'})['href'].split('?')[0]
-            return link
+            url = list_element[0].find('a', {'class': 'app-aware-link'})['href'].split('?')[0]
+            if 'headless' not in url:
+                return url
         return None
 
 
     # search dictionary to see if the organization is existing
-    def min_case(self, str_full, n_max=5, separator=' '):
+    def min_case(self, str_full, n_max=4, separator=' '):
         str_split = str_full.strip().split(separator)
         new_str = ''
         for s in str_split:
@@ -814,7 +845,7 @@ class LinkedInBot():
 
 '''
 def run_linkedin_bot_by_dict(profiles_by_companieshouse_id,
-                     occupations_filter=['Founder', 'Director', 'Shareholder'], force=False,
+                     occupations_filter=[['Founder'], ['Director', 'Shareholder']], force=False,
                      callback_profile=None, callback_company=None, callback_finish=None):
 
     linkedin_bot = LinkedInBot(user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,
@@ -825,7 +856,7 @@ def run_linkedin_bot_by_dict(profiles_by_companieshouse_id,
 
 
 def run_linkedin_bot(uuids_profile_filter='*', uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
-                     from_filter=datetime.min, to_filter=datetime.max, occupations_filter=['Founder', 'Director', 'Shareholder'], force=False,
+                     from_filter=datetime.min, to_filter=datetime.max, occupations_filter=[['Founder'], ['Director', 'Shareholder']], force=False,
                      callback_profile=None, callback_company=None, callback_finish=None):
 
     linkedin_bot = LinkedInBot(user_email=LINKEDIN_EMAIL, user_pwd=LINKEDIN_PWD,

@@ -1,4 +1,4 @@
-import time, requests, json
+import time, requests, json, random
 from datetime import datetime
 
 import psycopg2
@@ -11,6 +11,10 @@ class CrunchBaseBot():
         self.logger = logger
 
     def run(self, uuids_filter='*', category_groups_list_filter='*', country_code_filter='*', from_filter=datetime.min, to_filter=datetime.max, force=False):
+
+        wait_from = 2
+        wait_to = 10
+
         try:
             self.conn = psycopg2.connect(
                 host=DB_HOST,
@@ -19,7 +23,7 @@ class CrunchBaseBot():
                 password=DB_PASSWORD,
                 port=DB_PORT
             )
-            data = get_data_from_pending(DataSource.crunchbase.nameuuids_filter, '*', category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
+            data = get_data_from_pending(DataSource.crunchbase.name, uuids_filter, '*', category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
             for row in data:
                 uuid = row['uuid']
                 name = row['name']
@@ -29,7 +33,7 @@ class CrunchBaseBot():
                 founded_on = row['founded_on']
                 json_rest_api = self.get_rest_api(row)
                 self.write(uuid, name, legal_name, country_code, category_groups_list, founded_on, json_rest_api)
-                time.sleep(2)
+                time.sleep(random.randint(wait_from, wait_to))
 
         except Exception as ex:
             self.logger.error(ex)

@@ -65,7 +65,7 @@ REQUEST_FINGERPRINTER_IMPLEMENTATION = '2.7'
 # Configure item pipelines
 # See http://scrapy.readthedocs.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-   'companybot.pipelines.CompanyInformationPipeline': 300,
+   'pipelines.CompanyInformationPipeline': 300,
    # 'companybot.pipelines.IncorporationPipeline': 400,
    # 'companybot.pipelines.ComfirmationStatementPipeline': 500,
    # 'companybot.pipelines.AnnualReturnPipeline': 600,
