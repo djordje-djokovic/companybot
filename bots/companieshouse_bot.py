@@ -356,8 +356,9 @@ class CompaniesHouseBot(scrapy.Spider):
         yield scrapy.Request(self.filing_history_url, self.parse_filing)
 
     def start_requests(self):
-        #crunchbase requests
+        #companieshouse requests
         yield from self.get_requests()
+
 
     def closed(self, reason):
         pass
@@ -418,7 +419,8 @@ class CompaniesHouseBot(scrapy.Spider):
                         if role is not None:
                             name = self.strip(response.xpath(f'//dd[@id="case_{i}_practitioner_{j}_name"]/text()').get())
                             address = self.strip(response.xpath(f'//span[@id="case_{i}_practitioner_{j}_address"]/text()').get())
-                            practitioners.append({'name': name, 'address': address, 'role': role})
+                            name_without_titles = self.remove_titles(name.strip())
+                            practitioners.append({'name': name_without_titles, 'address': address, 'role': role})
                         else:
                             break
                     case_dict['practitioners'] = practitioners
@@ -508,7 +510,8 @@ class CompaniesHouseBot(scrapy.Spider):
         for selector in response.xpath('//div[@class="appointments-list"]/*'):
             if i in allowed_i:
                 officer_dict = {}
-                officer_dict['name'] = self.strip(response.xpath(f'//span[@id="officer-name-{i}"]/a/text()').get()).title()
+                name_without_titles = self.remove_titles(self.strip(response.xpath(f'//span[@id="officer-name-{i}"]/a/text()').get()).title())
+                officer_dict['name'] = name_without_titles
                 url_relative = self.strip(response.xpath(f'//span[@id="officer-name-{i}"]/a[@class="govuk-link"]/@href').get())
                 officer_dict['appointments_url'] = url = self.base_url + url_relative
 
@@ -652,7 +655,11 @@ class CompaniesHouseBot(scrapy.Spider):
                             first_names = [s.capitalize() for s in first_names]
                             last_name = full_name[-1].title()
                             full_name = last_name + ', ' + ' '.join(first_names)
-                            shareholders.append({'name': name.title(), 'full_name': full_name.title(), 'occupation': ['Shareholder'], 'date_of_birth': None})
+                            profile_name_split = full_name.split(',')
+                            profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
+                                           profile_name_split[0]
+
+                            shareholders.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': full_name.title(), 'occupation': ['Shareholder'], 'date_of_birth': None})
                             shareholder_names.append(name)
 
             shareholders = sorted(shareholders, key=lambda x: x['name'])
@@ -661,17 +668,19 @@ class CompaniesHouseBot(scrapy.Spider):
             officers = []
             officer_names = []
 
+
+
             for item in data['cards']['officer']['items']:
                 if len(item) > 0:
                     full_name = item['name'].lower()
-
+                    profile_name_split = full_name.split(',')
+                    profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
+                                   profile_name_split[0]
                     if CompaniesHouseBot.is_organization(full_name) == False:
-                        profile_name_split = full_name.split(',')
-                        profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
-
+                        name = " ".join(full_name.split(',')[::-1]).strip()
                         if not officer_names:
                             officer_names.append(full_name.lower())
-                            officers.append({'name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']],
+                            officers.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']],
                                  'date_of_birth': item['date_of_birth']})
                         else:
                             is_add = False
@@ -682,7 +691,7 @@ class CompaniesHouseBot(scrapy.Spider):
                                         officers[officer_names.index(full_name)]['occupation'].append(item['role'])
                                 else:
                                     if full_name.lower() not in officer_names:
-                                        officers.append({'name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']], 'date_of_birth': item['date_of_birth']})
+                                        officers.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']], 'date_of_birth': item['date_of_birth']})
                                         is_add = True
                                     elif item['role'] not in officers[officer_names.index(full_name)]['occupation']:
                                         officers[officer_names.index(full_name)]['occupation'].append(item['role'])
@@ -695,7 +704,7 @@ class CompaniesHouseBot(scrapy.Spider):
             for shareholder in shareholders:
                 match_found = False
                 for officer in officers:
-                    ratio = fuzz.token_sort_ratio(officer['name'].lower(), shareholder['name'].lower())
+                    ratio = fuzz.token_sort_ratio(officer['profile_name'].lower(), shareholder['profile_name'].lower())
                     if ratio >= 80:  # Adjust the threshold as per your requirement
                         match_found = True
                         if 'Shareholder' not in officer['occupation']:
@@ -718,13 +727,16 @@ class CompaniesHouseBot(scrapy.Spider):
                             first_names = [s.capitalize() for s in first_names]
                             last_name = full_name[-1].title()
                             full_name = last_name + ', ' + ' '.join(first_names)
-                            founders.append({'name': name.title(), 'full_name': full_name, 'occupation': ['Founder'], 'date_of_birth': None})
+                            profile_name_split = full_name.split(',')
+                            profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
+                                           profile_name_split[0]
+                            founders.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': full_name.title(), 'occupation': ['Founder'], 'date_of_birth': None})
                             founder_names.append(name)        # Perform fuzzy match
 
             for founder in founders:
                 match_found = False
                 for officer in officers:
-                    ratio = fuzz.token_sort_ratio(officer['name'].lower(), founder['name'].lower())
+                    ratio = fuzz.token_sort_ratio(officer['profile_name'].lower(), founder['profile_name'].lower())
                     if ratio >= 80:  # Adjust the threshold as per your requirement
                         match_found = True
                         if 'Founder' not in officer['occupation']:
@@ -1059,7 +1071,8 @@ class CompaniesHouseBot(scrapy.Spider):
                             if shareholder == '':
                                 raise ValueError('shareholder not found')
                             is_company = self.is_organization(shareholder)
-                            content['FULL DETAILS OF SHAREHOLDERS'].append({'name': shareholder.strip(), 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
+                            name_without_titles = self.remove_titles(shareholder.strip())
+                            content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                     i += 1
         except Exception as ex:
             logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
@@ -1162,8 +1175,9 @@ class CompaniesHouseBot(scrapy.Spider):
                         if shareholder == '':
                             raise ValueError('shareholder not found')
 
+                        name_without_titles = self.remove_titles(shareholder.strip())
                         is_company = self.is_organization(shareholder)
-                        content['FULL DETAILS OF SHAREHOLDERS'].append({'name': shareholder.strip(), 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
+                        content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                 i += 1
 
         return content
@@ -1364,6 +1378,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
         # change names to same as in shareholders dictionary
         for item in content['INITIAL SHAREHOLDINGS']:
+            item['name'] = self.remove_titles(item['name'].strip())
             if 'class_of_share' in item:
                 item['share_type'] = item.pop('class_of_share')
             if 'number_of_shares' in item:
@@ -1372,6 +1387,37 @@ class CompaniesHouseBot(scrapy.Spider):
             item['is_company'] = is_company
         return content
         # print(json.dumps(content, sort_keys = True, indent = 4))
+
+    @staticmethod
+    def remove_titles(name,
+                      title_identifiers=['MR', 'MR.', 'MRS', 'MRS.', 'MISS', 'MISS.', 'MS', 'MS.', 'DR', 'DR.', 'PROF',
+                                         'PROF.', 'SIR', 'SIR.', 'LORD', 'LORD.',
+                                         'LADY', 'LADY.', 'PHD', 'PHD.', 'REV', 'REV.', 'FR', 'FR.', 'BARON', 'BARON.',
+                                         'BARONESS', 'BARONESS.', 'SULTAN', 'SULTAN.',
+                                         'PRINCE', 'PRINCE.', 'PRINCESS', 'PRINCESS.', 'DUKE', 'DUKE.', 'DUCHESS',
+                                         'DUCHESS.', 'EARL', 'EARL.', 'COUNTESS', 'COUNTESS.',
+                                         'VISCOUNT', 'VISCOUNT.', 'VISCOUNTESS', 'VISCOUNTESS.', 'AMB', 'AMB.', 'ADM',
+                                         'ADM.', 'CAPT', 'CAPT.', 'COL', 'COL.', 'CMDR',
+                                         'CMDR.', 'LT', 'LT.', 'MAJ', 'MAJ.', 'SGT', 'SGT.', 'PVT', 'PVT.', 'REV',
+                                         'REV.', 'FR', 'FR.', 'BROTHER', 'BROTHER.', 'SISTER',
+                                         'SISTER.', 'FATHER', 'FATHER.', 'MOTHER', 'MOTHER.', 'RABBI', 'RABBI.',
+                                         'SHEIKH', 'SHEIKH.', 'AYATOLLAH', 'AYATOLLAH.', 'PRESIDENT',
+                                         'PRESIDENT.', 'PRIME MINISTER', 'PRIME MINISTER.', 'KING', 'KING.', 'QUEEN',
+                                         'QUEEN.']):
+        # Prepare pattern (escape each value to handle special regex characters, join with '|')
+        pattern = '|'.join(re.escape(value) for value in title_identifiers)
+
+        # Create full pattern with custom "word boundaries", case insensitive
+        full_pattern = r'(?:(?<=\W)|^)(' + pattern + r')(?:[.]?(?=\W)|$)'
+        full_pattern = re.compile(full_pattern, re.IGNORECASE)
+
+        # Replace all occurrences of the organization identifiers with an empty string
+        cleaned_name = re.sub(full_pattern, '', name)
+
+        # Remove any leading or trailing whitespaces from the cleaned name
+        cleaned_name = cleaned_name.strip()
+
+        return cleaned_name
 
     @staticmethod
     def is_organization(name, company_identifiers=['LIMITED', 'LTD', 'L.T.D.', 'PLC', 'P.L.C.', 'L.P.', 'GROUP', 'INVESTMENT',
