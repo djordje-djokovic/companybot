@@ -673,10 +673,10 @@ class CompaniesHouseBot(scrapy.Spider):
             for item in data['cards']['officer']['items']:
                 if len(item) > 0:
                     full_name = item['name'].lower()
-                    profile_name_split = full_name.split(',')
-                    profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
-                                   profile_name_split[0]
                     if CompaniesHouseBot.is_organization(full_name) == False:
+                        profile_name_split = full_name.split(',')
+                        profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
+                                       profile_name_split[0]
                         name = " ".join(full_name.split(',')[::-1]).strip()
                         if not officer_names:
                             officer_names.append(full_name.lower())
