@@ -30,7 +30,7 @@ from twisted.python.failure import Failure
 from twisted.internet import reactor, defer
 
 from uuid import uuid5, NAMESPACE_DNS
-from .common import PendingStatus, DataSource, get_profile_uuid, logger
+from .common import PendingStatus, DataSource, get_profile_uuid, logger, is_organization, get_persons
 from .config import TESSDATA_PATH, TESSERACT_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT, POPPLER_PATH, BRAVE_PATH # these imports are required for setup
 
 # pytesseract segmentation modes (--psm)
@@ -315,7 +315,7 @@ class CompaniesHouseBot(scrapy.Spider):
                             officer_string = etree.tostring(officer_element, encoding="unicode")
                             if not '<dt>Registration number</dt>' in officer_string:
                                 # if it contains a registration_element, it is not an officer but a company. this does not work all the time as sometimes companies do not havea registration element
-                                if CompaniesHouseBot.is_organization(officer_name) == False:
+                                if is_organization(officer_name) == False:
                                     profile_name_split = officer_name.split(',')
                                     profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
                                     profile_name = profile_name.title()
@@ -590,7 +590,9 @@ class CompaniesHouseBot(scrapy.Spider):
             created_at = dt
             updated_at = dt
 
-            persons = self.get_persons(self.data)
+            persons = get_persons(self.data)
+            # convert to usable format (input into LinkedInBot)
+
             logger.info(f'company: {self.crunchbase_company_name} get_persons')
             logger.debug(f'company: {self.crunchbase_company_name} get_persons. data: {json.dumps(persons)}')
 
@@ -638,125 +640,6 @@ class CompaniesHouseBot(scrapy.Spider):
         with open(path, 'w') as fp:
             json.dump(self.data, fp, indent=4)
 
-    @staticmethod
-    # get all physical persons that are involved in the company. this is needed for linkedin
-    def get_persons(data):
-        try:
-            shareholders = []
-            shareholder_names = []
-            for date, shareholder_dict in data['cards']['shareholding'].items():
-                for item in shareholder_dict['items']:
-                    name = item['name'].lower()
-                    if CompaniesHouseBot.is_organization(name) == False:
-                        if name not in shareholder_names:
-                            full_name = item['name'].split(
-                                ' ')  # need to rotate first and last names to make it the same as shareholding
-                            first_names = full_name[0:len(full_name) - 1]
-                            first_names = [s.capitalize() for s in first_names]
-                            last_name = full_name[-1].title()
-                            full_name = last_name + ', ' + ' '.join(first_names)
-                            profile_name_split = full_name.split(',')
-                            profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
-                                           profile_name_split[0]
-
-                            shareholders.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': full_name.title(), 'occupation': ['Shareholder'], 'date_of_birth': None})
-                            shareholder_names.append(name)
-
-            shareholders = sorted(shareholders, key=lambda x: x['name'])
-
-            # get unique officer persons
-            officers = []
-            officer_names = []
-
-
-
-            for item in data['cards']['officer']['items']:
-                if len(item) > 0:
-                    full_name = item['name'].lower()
-                    if CompaniesHouseBot.is_organization(full_name) == False:
-                        profile_name_split = full_name.split(',')
-                        profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
-                                       profile_name_split[0]
-                        name = " ".join(full_name.split(',')[::-1]).strip()
-                        if not officer_names:
-                            officer_names.append(full_name.lower())
-                            officers.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']],
-                                 'date_of_birth': item['date_of_birth']})
-                        else:
-                            is_add = False
-                            for officer_name in officer_names:
-                                ratio = fuzz.token_sort_ratio(full_name.lower(), officer_name.lower())/100
-                                if ratio >= 0.8:
-                                    if item['role'] not in officers[officer_names.index(full_name)]['occupation']:
-                                        officers[officer_names.index(full_name)]['occupation'].append(item['role'])
-                                else:
-                                    if full_name.lower() not in officer_names:
-                                        officers.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': item['name'].title(), 'occupation': [item['role']], 'date_of_birth': item['date_of_birth']})
-                                        is_add = True
-                                    elif item['role'] not in officers[officer_names.index(full_name)]['occupation']:
-                                        officers[officer_names.index(full_name)]['occupation'].append(item['role'])
-                                if is_add:
-                                    officer_names.append(full_name.lower())
-                                    break
-            officers = sorted(officers, key=lambda x: x['name'])
-
-            # join shareholding and officer persons together
-            for shareholder in shareholders:
-                match_found = False
-                for officer in officers:
-                    ratio = fuzz.token_sort_ratio(officer['profile_name'].lower(), shareholder['profile_name'].lower())
-                    if ratio >= 80:  # Adjust the threshold as per your requirement
-                        match_found = True
-                        if 'Shareholder' not in officer['occupation']:
-                            officer['occupation'].append('Shareholder')
-                        break
-                if not match_found:
-                    officers.append(shareholder)
-
-            # add the founders as a new person or add as an occupation if he exists within the previous names using fuzzy match
-            founders = []
-            founder_names = []
-            for item in data['cards']['incorporation']['items']:
-                if len(item)>0:
-                    name = item['name'].lower()
-                    if CompaniesHouseBot.is_organization(name) == False:
-                        if name not in founder_names:
-                            full_name = item['name'].split(
-                                ' ')  # need to rotate first and last names to make it the same as shareholding
-                            first_names = full_name[0:len(full_name) - 1]
-                            first_names = [s.capitalize() for s in first_names]
-                            last_name = full_name[-1].title()
-                            full_name = last_name + ', ' + ' '.join(first_names)
-                            profile_name_split = full_name.split(',')
-                            profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + \
-                                           profile_name_split[0]
-                            founders.append({'name': name.title(), 'profile_name': profile_name.title(), 'full_name': full_name.title(), 'occupation': ['Founder'], 'date_of_birth': None})
-                            founder_names.append(name)        # Perform fuzzy match
-
-            for founder in founders:
-                match_found = False
-                for officer in officers:
-                    ratio = fuzz.token_sort_ratio(officer['profile_name'].lower(), founder['profile_name'].lower())
-                    if ratio >= 80:  # Adjust the threshold as per your requirement
-                        match_found = True
-                        if 'Founder' not in officer['occupation']:
-                            officer['occupation'].append('Founder')
-                        break
-                if not match_found:
-                    officers.append(founder)
-
-            # convert to usable format (input into LinkedInBot)
-            out = {}
-            out['company_id'] = data['properties']['company_id']
-            out['company_name'] = data['properties']['company_name']
-            out['items'] = []
-            for officer in officers:
-                out['items'].append(officer)
-
-            return out
-
-        except Exception as ex:
-            raise ValueError('get_persons', str(ex))
 
     # joins officers and shareholders to get a list of all unique physical persons
     def finished(self, data):
@@ -1070,7 +953,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
                             if shareholder == '':
                                 raise ValueError('shareholder not found')
-                            is_company = self.is_organization(shareholder)
+                            is_company = is_organization(shareholder)
                             name_without_titles = self.remove_titles(shareholder.strip())
                             content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                     i += 1
@@ -1176,7 +1059,7 @@ class CompaniesHouseBot(scrapy.Spider):
                             raise ValueError('shareholder not found')
 
                         name_without_titles = self.remove_titles(shareholder.strip())
-                        is_company = self.is_organization(shareholder)
+                        is_company = is_organization(shareholder)
                         content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                 i += 1
 
@@ -1383,7 +1266,7 @@ class CompaniesHouseBot(scrapy.Spider):
                 item['share_type'] = item.pop('class_of_share')
             if 'number_of_shares' in item:
                 item['shares'] = item.pop('number_of_shares')
-            is_company = self.is_organization(item['name'])
+            is_company = is_organization(item['name'])
             item['is_company'] = is_company
         return content
         # print(json.dumps(content, sort_keys = True, indent = 4))
@@ -1418,23 +1301,6 @@ class CompaniesHouseBot(scrapy.Spider):
         cleaned_name = cleaned_name.strip()
 
         return cleaned_name
-
-    @staticmethod
-    def is_organization(name, company_identifiers=['LIMITED', 'LTD', 'L.T.D.', 'PLC', 'P.L.C.', 'L.P.', 'GROUP', 'INVESTMENT',
-                                              'INVESTMENTS', 'CAPITAL', 'CORP', 'CORPORATION', 'COMPANY', 'PARTNER', 'EQUITY',
-                                              'VENTURE', 'VENTURES', 'LP', 'LLP', 'L.P.', 'L.L.P.',
-                                              'LLC', 'L.L.C.', 'STARTUP', 'GMBH', 'G.M.B.H', 'SARL', 'S.A.R.L', 'S.A.R.L.', 'FONDATION',
-                                              'FOUNDATION', '&', 'TRUST', 'UNIVERSITY', 'SCHOOL', 'SUPPORT', 'SAS', 'S.A.S.',
-                                              'MANAGEMENT', 'NOMINEE', 'TRADING', 'B.V.', 'HOLDING', 'INC', 'LABS', 'TRUSTEE', 'TRUSTEES',
-                                              'VC', 'INC.', 'COUNCIL']):
-        # Prepare pattern (escape each value to handle special regex characters, join with '|')
-        pattern = '|'.join(re.escape(value) for value in company_identifiers)
-
-        # Create full pattern with custom "word boundaries", case insensitive
-        full_pattern = r'(?:(?<=\W)|^)(' + pattern + r')(?:(?=\W)|$)'
-        full_pattern = re.compile(full_pattern, re.IGNORECASE)
-
-        return bool(re.search(full_pattern, name))
 
 
 def run_companieshouse_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
@@ -1556,7 +1422,7 @@ def write_failed(uuid, crunchbase_company_name, json_rest_api):
     else:
         conn.commit()
         logger.info(
-        f'company: {crunchbase_company_name} writing data successful from source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} company: {crunchbase_company_name}')
+        f'company: {crunchbase_company_name} writing failed data successful from source: {DataSource.companieshouse.name} status: {PendingStatus.completed.name} company: {crunchbase_company_name}')
     finally:
         cursor.close()
 

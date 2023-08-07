@@ -10,6 +10,29 @@ from psycopg2.extras import execute_values
 import csv, numpy as np
 import scrapy, os, json, logging, requests
 
+def add_dots(string):
+    # add a dot after each character
+    string = '.'.join(string) + '.'
+    # remove the dot if it was added after a space or before a dot
+    string = string.replace('. .', ' ').replace('..', '.')
+    return string
+
+ORGANIZATION_SHORTCUTS = ['AB', 'AG', 'ASBL', 'BV', 'BVBA', 'Bt.', 'CO', 'CO.', 'EIRL', 'EARL', 'EI', 'ETI',
+                          'EURL', 'EV', 'GAEC', 'GCS', 'GIE', 'GMBH', 'Gbr', 'INC', 'INC.', 'KG', 'KGaA', 'KK',
+                          'Kd', 'Kft', 'Kkt', 'LDA', 'LLC', 'LLLP', 'LLP', 'LP', 'LTD', 'M.B.', 'ME', 'NV',
+                          'Nyrt', 'OG', 'OOO', 'PLC', 'PT', 'PTE', 'PTE LTD', 'PTY', 'PVT', 'PartG',
+                          'QSC', 'Rt', 'SCI', 'SPA', 'SA', 'SAOC', 'SAOG', 'SAPA', 'SARL', 'SAS', 'SASU', 'SC', 'SCA',
+                          'SCM', 'SCP', 'SCRL', 'SCS', 'SDN', 'SE', 'SELARL', 'SERL', 'SL', 'SLL', 'SLNE', 'SLU',
+                          'SNC', 'SP.ZO.O', 'SPRL', 'SRL', 'StH', 'UA', 'ULC', 'VOF', 'VAG', 'VC', 'VZW', 'Zrt', 'eG',
+                          'eU', 'mbH', 'АО', 'ООО']
+
+ORGANIZATION_SHORTCUTS_WITH_DOTS = [add_dots(identifier) for identifier in ORGANIZATION_SHORTCUTS]
+
+ORGANIZATION_NAMES = ['LIMITED', 'GROUP', 'INVESTMENT', 'INVESTMENTS', 'CAPITAL', 'CORP',
+                      'CORPORATION', 'COMPANY', 'PARTNER', 'EQUITY', 'VENTURE', 'VENTURES', 'STARTUP',
+                      'FONDATION', 'FOUNDATION', '&', 'TRUST', 'UNIVERSITY', 'SCHOOL', 'SUPPORT',
+                      'MANAGEMENT', 'NOMINEE', 'TRADING', 'HOLDING', 'LABS', 'TRUSTEE', 'TRUSTEES',
+                      'COUNCIL']
 class PendingStatus(Enum):
     pending = 0
     completed = 1
@@ -23,6 +46,19 @@ def split_csv(csv_string):
     reader = csv.reader([csv_string])
     rows = next(reader)
     return rows
+
+def is_organization(name):
+    # Combine the original and new lists
+    identifiers = ORGANIZATION_NAMES + ORGANIZATION_SHORTCUTS + ORGANIZATION_SHORTCUTS_WITH_DOTS
+
+    # Prepare pattern (escape each value to handle special regex characters, join with '|')
+    pattern = '|'.join(re.escape(value) for value in identifiers)
+
+    # Create full pattern with custom "word boundaries", case insensitive
+    full_pattern = r'(?:(?<=\W)|^)(' + pattern + r')(?:(?=\W)|$)'
+    full_pattern = re.compile(full_pattern, re.IGNORECASE)
+
+    return bool(re.search(full_pattern, name))
 
 def get_category_group_list():
     filename = f'{CRUNCHBASE_DIR}/bulk_export/category_groups.csv'
@@ -609,7 +645,7 @@ def get_logger(name):
     os.makedirs('log', exist_ok=True)
     utc_str = datetime.utcnow().strftime('%Y%m%dT%H%M%S')
     log_name = f'log\\companybot_{utc_str}.log'
-    file_handler = logging.FileHandler(log_name)
+    file_handler = logging.FileHandler(log_name, encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
 
     # Define a log format
@@ -755,6 +791,234 @@ def initialize(uuids_filter ='*', category_groups_list_filter ='*', country_code
                                     to=to_filter,
                                     force=pending_force)
 
+
+from fuzzywuzzy import fuzz
+import itertools
+
+def get_persons(data, ratio=80, ratio_dob=60):
+
+    unique_shareholders = get_unique_shareholders(data['cards']['shareholding'], ratio=ratio)
+    unique_officers = get_unique_officers(data['cards']['officer']['items'], ratio=ratio, ratio_dob=ratio_dob)
+    unique_founders = get_unique_founders(data['cards']['incorporation']['items'], ratio=ratio)
+
+    persons = unique_shareholders + unique_officers + unique_founders
+    unique_persons = get_unique_persons(persons, ratio, ratio_dob)
+
+    out = {}
+    out['company_id'] = data['properties']['company_id']
+    out['company_name'] = data['properties']['company_name']
+    out['items'] = []
+    for person in unique_persons:
+        out['items'].append(person)
+
+    return out
+
+
+def get_name_combinations(name, length, ignore_single_characters=True):
+    #     print(name, length)
+    # Break the name into individual words and remove single character words
+    if ignore_single_characters:
+        name_parts = [part for part in name.lower().split() if len(part.replace('.', '')) > 1]
+    else:
+        name_parts = name.lower().split()
+
+    # Create combinations of the given length
+    return list(itertools.combinations(name_parts, length))
+
+
+def match_names(name1, name2, ratio=80):
+    # Get permutations for both names
+
+    name1_parts = name1.lower().split()
+    name2_parts = name2.lower().split()
+
+    # If both names have only one part, check for an exact match
+    if len(name1_parts) == 1 and len(name2_parts) == 1:
+        return name1_parts[0] == name2_parts[0]
+
+    # If one of the names has two parts with one of them having only one character,
+    # check if it exactly matches one of the tuples of the other name
+    if len(name1_parts) == 2 and any(len(part) == 1 for part in name1_parts):
+        return any(
+            set(name1_parts) == set(perm) for perm in get_name_combinations(name2, 2, ignore_single_characters=False))
+    if len(name2_parts) == 2 and any(len(part) == 1 for part in name2_parts):
+        return any(
+            set(name2_parts) == set(perm) for perm in get_name_combinations(name1, 2, ignore_single_characters=False))
+
+    name1_combinations = get_name_combinations(name1, 2)
+    name2_combinations = get_name_combinations(name2, 2)
+
+    #     print(name1_combinations, name2_combinations)
+    # Loop through each permutation pair and apply fuzzy matching
+    for perm1 in name1_combinations:
+        for perm2 in name2_combinations:
+            name_1 = ' '.join(perm1)
+            name_2 = ' '.join(perm2)
+            r = fuzz.token_set_ratio(name_1, name_2)
+            #             print(perm1, perm2, name_1, name_2, r)
+            # We join the tuples back into strings for comparison using token_set_ratio
+            if r >= ratio:
+                # If any pair of permutations has a high match ratio, consider the names a match
+                return True
+
+    # If no pairs of permutations have a high match ratio, the names don't match
+    return False
+
+
+def get_unique_founders(people, ratio=80):
+    people_copy = people.copy()  # Create a copy of the original list
+    unique_people = []
+    while people_copy:
+        person = people_copy.pop(0)  # Start with the first person
+
+        # If the name is a company name, skip it and continue with the next person
+        if is_organization(person["name"]):
+            continue
+
+        # Separate the rest into duplicates and non-duplicates of this person
+        duplicates = []
+        non_duplicates = []
+        for other_person in people_copy:
+            similar_n = match_names(person["name"], other_person["name"], ratio=ratio)
+            if similar_n:
+                duplicates.append(other_person)
+            else:
+                non_duplicates.append(other_person)
+
+        # Merge the person and duplicates into a single record
+        merged_person = {"name": "", "full_name": "", "profile_name": "", "occupation": ['Founder'],
+                         "date_of_birth": None}
+
+        for p in [person] + duplicates:
+
+            if len(p["name"]) > len(merged_person["name"]):  # Keep the longest name
+
+                name = p['name'].replace('-', ' ')
+
+                full_name = name.split(' ')  # need to rotate first and last names to make it the same as shareholding
+                first_names = full_name[0:len(full_name) - 1]
+                first_names = [s.capitalize() for s in first_names]
+                last_name = full_name[-1].title()
+                full_name = last_name + ', ' + ' '.join(first_names)
+                profile_name_split = full_name.split(',')
+                profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
+
+                merged_person["name"] = name.title()
+                merged_person["full_name"] = full_name.title()
+                merged_person["profile_name"] = profile_name.title()
+
+        unique_people.append(merged_person)
+        people_copy = non_duplicates  # Continue with the remaining people
+    unique_people = sorted(unique_people, key=lambda x: x['name'])
+    return unique_people
+
+
+def get_unique_shareholders(people, ratio=80):
+    people_copy = []
+    for key, value in people.copy().items():
+        if value['items']: people_copy.extend(value['items'])
+
+    unique_people = []
+    while people_copy:
+        person = people_copy.pop(0)  # Start with the first person
+
+        # If the name is a company name, skip it and continue with the next person
+        if is_organization(person["name"]):
+            continue
+
+        # Separate the rest into duplicates and non-duplicates of this person
+        duplicates = []
+        non_duplicates = []
+        for other_person in people_copy:
+            similar_n = match_names(person["name"], other_person["name"], ratio=ratio)
+            #             print(f'{person["name"]} | {other_person["name"]} | {similar_n}')
+            if similar_n:
+                duplicates.append(other_person)
+            else:
+                non_duplicates.append(other_person)
+
+        # Merge the person and duplicates into a single record
+        merged_person = {"name": "", "full_name": "", "profile_name": "", "occupation": ['Shareholder'],
+                         "date_of_birth": None}
+        for p in [person] + duplicates:
+
+            if len(p["name"]) > len(merged_person["name"]):  # Keep the longest name
+                name = p['name'].replace('-', ' ')
+                full_name = p['name'].split(
+                    ' ')  # need to rotate first and last names to make it the same as shareholding
+                first_names = full_name[0:len(full_name) - 1]
+                first_names = [s.capitalize() for s in first_names]
+                last_name = full_name[-1].title()
+                full_name = last_name + ', ' + ' '.join(first_names)
+                profile_name_split = full_name.split(',')
+                profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
+
+                merged_person["name"] = name.title()
+                merged_person["full_name"] = full_name.title()
+                merged_person["profile_name"] = profile_name.title()
+
+        unique_people.append(merged_person)
+        people_copy = non_duplicates  # Continue with the remaining people
+    unique_people = sorted(unique_people, key=lambda x: x['name'])
+    return unique_people
+
+
+def get_unique_officers(people, ratio=80, ratio_dob=60, occupations_name='role', full_name_name='name'):
+    people_copy = people.copy()  # Create a copy of the original list
+    unique_people = []
+    while people_copy:
+        person = people_copy.pop(0)  # Start with the first person
+
+        # If the name is a company name, skip it and continue with the next person
+        if is_organization(person["name"]):
+            continue
+
+        # Separate the rest into duplicates and non-duplicates of this person
+        duplicates = []
+        non_duplicates = []
+        for other_person in people_copy:
+            similar_n = match_names(person["name"], other_person["name"], ratio=ratio)
+            similar_dob_n = match_names(person["name"], other_person["name"], ratio=ratio_dob)
+            #             print(f'{person["name"]} | {other_person["name"]} | {similar_n} {similar_dob_n}')
+            if similar_n or (similar_dob_n and person["date_of_birth"] == other_person["date_of_birth"]):
+                duplicates.append(other_person)
+            else:
+                non_duplicates.append(other_person)
+
+        # Merge the person and duplicates into a single record
+        merged_person = {"name": "", "full_name": "", "profile_name": "", "occupation": [], "date_of_birth": None}
+
+        for p in [person] + duplicates:
+
+            if len(p[full_name_name]) > len(merged_person["name"]):  # Keep the longest name
+
+                full_name = p[full_name_name].lower().replace('-', ' ')
+                profile_name_split = full_name.split(',')
+                #                 print('full_name', full_name)
+                profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
+                name = " ".join(full_name.split(',')[::-1]).strip()
+                merged_person["name"] = name.title()
+                merged_person["full_name"] = full_name.title()
+                merged_person["profile_name"] = profile_name.title()
+
+            if p[occupations_name] not in merged_person["occupation"]:  # Combine the roles
+                if type(p[occupations_name]) == str:
+                    merged_person["occupation"].append(p[occupations_name])
+                else:
+                    merged_person["occupation"].extend(p[occupations_name])
+
+            if "date_of_birth" in p and p["date_of_birth"]:  # Retain the birth date if available
+                merged_person["date_of_birth"] = p["date_of_birth"]
+
+        unique_people.append(merged_person)
+        people_copy = non_duplicates  # Continue with the remaining people
+    unique_people = sorted(unique_people, key=lambda x: x['name'])
+    return unique_people
+
+
+def get_unique_persons(data, ratio, ratio_dob):
+    return get_unique_officers(data, ratio, ratio_dob, occupations_name='occupation', full_name_name='full_name')
+
 def get_data_from_pending(source, uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*', fr=datetime.max, to=datetime.max, force=False):
 
     # uuids_str = ', '.join([f"'{item}'" for item in uuids]) if type(
@@ -806,3 +1070,4 @@ def get_data_from_pending(source, uuids='*', uuids_parent='*', category_groups_l
 
 logger = get_logger('CompanyBot')
 logger.propagate = False
+
