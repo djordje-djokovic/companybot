@@ -10,29 +10,35 @@ from psycopg2.extras import execute_values
 import csv, numpy as np
 import scrapy, os, json, logging, requests
 
-def add_dots(string):
-    # add a dot after each character
-    string = '.'.join(string) + '.'
-    # remove the dot if it was added after a space or before a dot
-    string = string.replace('. .', ' ').replace('..', '.')
-    return string
+USER_AGENTS = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36']
 
-ORGANIZATION_SHORTCUTS = ['AB', 'AG', 'ASBL', 'BV', 'BVBA', 'Bt.', 'CO', 'CO.', 'EIRL', 'EARL', 'EI', 'ETI',
+TITLE_NAMES = ['ADM', 'AMB', 'AYATOLLAH', 'BARON', 'BARONESS', 'BROTHER', 'CAPT', 'CMDR', 'COL', 'COUNTESS',
+                                 'DR', 'DUCHESS', 'DUKE', 'EARL', 'FATHER', 'FR', 'KING', 'LADY', 'LORD', 'LT', 'MAJ', 'MISS',
+                                 'MOTHER', 'MR', 'MRS', 'MS', 'PHD', 'PRESIDENT', 'PRIME MINISTER', 'PRINCE', 'PRINCESS', 'PROF',
+                                 'PVT', 'QUEEN', 'RABBI', 'REV', 'SGT', 'SHEIKH', 'SIR', 'SISTER', 'SULTAN', 'VISCOUNT', 'VISCOUNTESS']
+
+ORGANIZATION_SHORTCUTS = ['A/S', 'AB', 'ADV', 'AG', 'AS', 'ASBL', 'BV', 'BVBA', 'BT', 'CO', 'CO.', 'EIS', 'EIRL', 'EARL', 'EI', 'ETI',
                           'EURL', 'EV', 'GAEC', 'GCS', 'GIE', 'GMBH', 'Gbr', 'INC', 'INC.', 'KG', 'KGaA', 'KK',
                           'Kd', 'Kft', 'Kkt', 'LDA', 'LLC', 'LLLP', 'LLP', 'LP', 'LTD', 'M.B.', 'ME', 'NV',
                           'Nyrt', 'OG', 'OOO', 'PLC', 'PT', 'PTE', 'PTE LTD', 'PTY', 'PVT', 'PartG',
                           'QSC', 'Rt', 'SCI', 'SPA', 'SA', 'SAOC', 'SAOG', 'SAPA', 'SARL', 'SAS', 'SASU', 'SC', 'SCA',
-                          'SCM', 'SCP', 'SCRL', 'SCS', 'SDN', 'SE', 'SELARL', 'SERL', 'SL', 'SLL', 'SLNE', 'SLU',
-                          'SNC', 'SP.ZO.O', 'SPRL', 'SRL', 'StH', 'UA', 'ULC', 'VOF', 'VAG', 'VC', 'VZW', 'Zrt', 'eG',
+                          'SCM', 'SCP', 'SRL', 'SCRL', 'SCS', 'SCSP', 'SDN', 'SE', 'SELARL', 'SERL', 'SL', 'SLL', 'SLNE', 'SLU',
+                          'SNC', 'SP.ZO.O', 'SPRL', 'SRL', 'SRO', 'STH', 'UA', 'ULC', 'VOF', 'VAG', 'VC', 'VCC', 'VCT', 'VZW', 'Zrt', 'eG',
                           'eU', 'mbH', 'АО', 'ООО']
 
-ORGANIZATION_SHORTCUTS_WITH_DOTS = [add_dots(identifier) for identifier in ORGANIZATION_SHORTCUTS]
 
-ORGANIZATION_NAMES = ['LIMITED', 'GROUP', 'INVESTMENT', 'INVESTMENTS', 'CAPITAL', 'CORP',
-                      'CORPORATION', 'COMPANY', 'PARTNER', 'EQUITY', 'VENTURE', 'VENTURES', 'STARTUP',
-                      'FONDATION', 'FOUNDATION', '&', 'TRUST', 'UNIVERSITY', 'SCHOOL', 'SUPPORT',
-                      'MANAGEMENT', 'NOMINEE', 'TRADING', 'HOLDING', 'LABS', 'TRUSTEE', 'TRUSTEES',
-                      'COUNCIL']
+ORGANIZATION_NAMES = ['&', 'ACTIVITY', 'ADVISORY', 'ALPHA', 'ASSOCIATE', 'ASSOCIATES', 'ASSOCIATI', 'CAPITAL', 'CAPITALS', 'COMPANY', 'COMPANIES', 'CONSULTANCY',
+                      'COLLEGE', 'COLLEGES', 'COFUND', 'CORP', 'CORPS', 'CORPORATION', 'CORPORATIONS',
+                      'COUNCIL', 'COUNCILS', 'DIVERSIFIED', 'ENTREPRENEUR', 'EQUITY', 'EQUITIES', 'FACTORY', 'FIRST',
+                      'FACTORIES', 'FOUNDER', 'FOUNDERS', 'FOUNDATION', 'FOUNDATIONS', 'FUND', 'FUNDS', 'FUNDING',
+                      'GROUP', 'GROUPS', 'GROWTH', 'HARDWARE', 'HOLDING', 'HOLDINGS', 'INNOVATION', 'INFORMATION',
+                      'INVEST', 'INVESTMENT', 'INVESTMENTS', 'LAB', 'LABS', 'LEADERSHIP',
+                      'LIMITED', 'MANAGEMENT', 'NOMINEE', 'NOMINEES', 'OPPORTUNITY', 'OPPORTUNITIES', 'ORGANICZONA',
+                      'PARTNER', 'PARTNERS', 'PARTNERSHIP', 'SCIENCE', 'SCIENCES', 'SCHOOL', 'SHARES', 'SOLUTION', 'SOFTWARE',
+                      'SOLUTIONS', 'STARTUP', 'STRATEGIES', 'STRATEGY',
+                      'SUPPORT', 'TECHNOLOGY', 'TECHNOLOGIES', 'TRADING', 'TRUST',
+                      'TRUSTEE', 'TRUSTEES', 'UNIVERSITY', 'UNIVERSITIES', 'VENTURE', 'VENTURES']
+
 class PendingStatus(Enum):
     pending = 0
     completed = 1
@@ -47,9 +53,27 @@ def split_csv(csv_string):
     rows = next(reader)
     return rows
 
+
+def remove_titles(name):
+    name = name.replace('.', ' ').strip()
+    # Prepare pattern (escape each value to handle special regex characters, join with '|')
+    pattern = '|'.join(re.escape(value) for value in TITLE_NAMES)
+
+    # Create full pattern with custom "word boundaries", case insensitive
+    full_pattern = r'(?:(?<=\W)|^)(' + pattern + r')(?:[.]?(?=\W)|$)'
+    full_pattern = re.compile(full_pattern, re.IGNORECASE)
+
+    # Replace all occurrences of the organization identifiers with an empty string
+    cleaned_name = re.sub(full_pattern, '', name)
+
+    # Remove any leading or trailing whitespaces from the cleaned name
+    cleaned_name = cleaned_name.strip()
+
+    return cleaned_name
+
 def is_organization(name):
     # Combine the original and new lists
-    identifiers = ORGANIZATION_NAMES + ORGANIZATION_SHORTCUTS + ORGANIZATION_SHORTCUTS_WITH_DOTS
+    identifiers = ORGANIZATION_NAMES + ORGANIZATION_SHORTCUTS
 
     # Prepare pattern (escape each value to handle special regex characters, join with '|')
     pattern = '|'.join(re.escape(value) for value in identifiers)
@@ -58,7 +82,7 @@ def is_organization(name):
     full_pattern = r'(?:(?<=\W)|^)(' + pattern + r')(?:(?=\W)|$)'
     full_pattern = re.compile(full_pattern, re.IGNORECASE)
 
-    return bool(re.search(full_pattern, name))
+    return bool(re.search(full_pattern, name.replace(",", '').replace('.', '').replace('/', '').replace("\\", '').replace("|", '')))
 
 def get_category_group_list():
     filename = f'{CRUNCHBASE_DIR}/bulk_export/category_groups.csv'
@@ -551,8 +575,8 @@ def get_uuids_from_crunchbase_organizations(names=['elliptic', 'isize']):
     conn.close()
     return result
 
-def get_profile_uuid(full_name, company_uuid):
-    return full_name.lower() + '|' + str(company_uuid)
+def get_profile_uuid(name, company_uuid):
+    return name.lower() + '|' + str(company_uuid)
 
 '''
 uuids: company uuids
@@ -795,7 +819,19 @@ def initialize(uuids_filter ='*', category_groups_list_filter ='*', country_code
 from fuzzywuzzy import fuzz
 import itertools
 
-def get_persons(data, ratio=80, ratio_dob=60):
+def get_aligned_name(name):
+    split_name = name.split(',')
+    aligned_name = ' '.join([n.strip() for n in split_name[::-1]])
+    return aligned_name.strip()
+
+def get_profile_name(name):
+    name_split = name.split(' ')
+    if len(name_split) == 0:
+        return name_split[0].strip()
+    else:
+        return (name_split[0] + ' ' + name_split[-1]).strip()
+
+def get_persons(data, ratio=75, ratio_dob=55):
 
     unique_shareholders = get_unique_shareholders(data['cards']['shareholding'], ratio=ratio)
     unique_officers = get_unique_officers(data['cards']['officer']['items'], ratio=ratio, ratio_dob=ratio_dob)
@@ -886,25 +922,16 @@ def get_unique_founders(people, ratio=80):
                 non_duplicates.append(other_person)
 
         # Merge the person and duplicates into a single record
-        merged_person = {"name": "", "full_name": "", "profile_name": "", "occupation": ['Founder'],
-                         "date_of_birth": None}
+        merged_person = {"name": "", "profile_name": "", "occupation": ['Founder'], "date_of_birth": None}
 
         for p in [person] + duplicates:
 
             if len(p["name"]) > len(merged_person["name"]):  # Keep the longest name
 
                 name = p['name'].replace('-', ' ')
-
-                full_name = name.split(' ')  # need to rotate first and last names to make it the same as shareholding
-                first_names = full_name[0:len(full_name) - 1]
-                first_names = [s.capitalize() for s in first_names]
-                last_name = full_name[-1].title()
-                full_name = last_name + ', ' + ' '.join(first_names)
-                profile_name_split = full_name.split(',')
-                profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
+                profile_name = get_profile_name(name)
 
                 merged_person["name"] = name.title()
-                merged_person["full_name"] = full_name.title()
                 merged_person["profile_name"] = profile_name.title()
 
         unique_people.append(merged_person)
@@ -938,23 +965,15 @@ def get_unique_shareholders(people, ratio=80):
                 non_duplicates.append(other_person)
 
         # Merge the person and duplicates into a single record
-        merged_person = {"name": "", "full_name": "", "profile_name": "", "occupation": ['Shareholder'],
+        merged_person = {"name": "", "profile_name": "", "occupation": ['Shareholder'],
                          "date_of_birth": None}
         for p in [person] + duplicates:
 
             if len(p["name"]) > len(merged_person["name"]):  # Keep the longest name
                 name = p['name'].replace('-', ' ')
-                full_name = p['name'].split(
-                    ' ')  # need to rotate first and last names to make it the same as shareholding
-                first_names = full_name[0:len(full_name) - 1]
-                first_names = [s.capitalize() for s in first_names]
-                last_name = full_name[-1].title()
-                full_name = last_name + ', ' + ' '.join(first_names)
-                profile_name_split = full_name.split(',')
-                profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
+                profile_name = get_profile_name(name)
 
                 merged_person["name"] = name.title()
-                merged_person["full_name"] = full_name.title()
                 merged_person["profile_name"] = profile_name.title()
 
         unique_people.append(merged_person)
@@ -963,7 +982,7 @@ def get_unique_shareholders(people, ratio=80):
     return unique_people
 
 
-def get_unique_officers(people, ratio=80, ratio_dob=60, occupations_name='role', full_name_name='name'):
+def get_unique_officers(people, ratio=80, ratio_dob=60, occupations_name='role'):
     people_copy = people.copy()  # Create a copy of the original list
     unique_people = []
     while people_copy:
@@ -979,26 +998,24 @@ def get_unique_officers(people, ratio=80, ratio_dob=60, occupations_name='role',
         for other_person in people_copy:
             similar_n = match_names(person["name"], other_person["name"], ratio=ratio)
             similar_dob_n = match_names(person["name"], other_person["name"], ratio=ratio_dob)
-            #             print(f'{person["name"]} | {other_person["name"]} | {similar_n} {similar_dob_n}')
-            if similar_n or (similar_dob_n and person["date_of_birth"] == other_person["date_of_birth"]):
+            similar_dob = False
+            if person["date_of_birth"] or other_person["date_of_birth"]:
+                similar_dob = person["date_of_birth"] == other_person["date_of_birth"]
+            #             print(f'{person["name"]} | {other_person["name"]} | {similar_n} {similar_dob_n and similar_dob}')
+            if similar_n or (similar_dob_n and similar_dob):
                 duplicates.append(other_person)
             else:
                 non_duplicates.append(other_person)
 
         # Merge the person and duplicates into a single record
-        merged_person = {"name": "", "full_name": "", "profile_name": "", "occupation": [], "date_of_birth": None}
+        merged_person = {"name": "", "profile_name": "", "occupation": [], "date_of_birth": None}
 
         for p in [person] + duplicates:
 
-            if len(p[full_name_name]) > len(merged_person["name"]):  # Keep the longest name
-
-                full_name = p[full_name_name].lower().replace('-', ' ')
-                profile_name_split = full_name.split(',')
-                #                 print('full_name', full_name)
-                profile_name = profile_name_split[1].strip().split(' ')[0].strip() + ' ' + profile_name_split[0]
-                name = " ".join(full_name.split(',')[::-1]).strip()
-                merged_person["name"] = name.title()
-                merged_person["full_name"] = full_name.title()
+            if len(p['name']) > len(merged_person["name"]):  # Keep the longest name
+                name = p['name'].title()
+                profile_name = get_profile_name(name)
+                merged_person["name"] = name
                 merged_person["profile_name"] = profile_name.title()
 
             if p[occupations_name] not in merged_person["occupation"]:  # Combine the roles
@@ -1010,14 +1027,19 @@ def get_unique_officers(people, ratio=80, ratio_dob=60, occupations_name='role',
             if "date_of_birth" in p and p["date_of_birth"]:  # Retain the birth date if available
                 merged_person["date_of_birth"] = p["date_of_birth"]
 
+        merged_person["occupation"] = list(sorted(set(merged_person["occupation"])))
+
         unique_people.append(merged_person)
         people_copy = non_duplicates  # Continue with the remaining people
     unique_people = sorted(unique_people, key=lambda x: x['name'])
     return unique_people
 
+def get_user_agent(email):
+    index = hash(email) % len(USER_AGENTS)
+    return USER_AGENTS[index]
 
 def get_unique_persons(data, ratio, ratio_dob):
-    return get_unique_officers(data, ratio, ratio_dob, occupations_name='occupation', full_name_name='full_name')
+    return get_unique_officers(data, ratio, ratio_dob, occupations_name='occupation')
 
 def get_data_from_pending(source, uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*', fr=datetime.max, to=datetime.max, force=False):
 

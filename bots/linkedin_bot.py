@@ -12,16 +12,18 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as BraveService
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, MoveTargetOutOfBoundsException
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
 from .config import LINKEDIN_EMAIL, LINKEDIN_PWD, BRAVE_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT
-from .common import PendingStatus, DataSource, logger
+from .common import PendingStatus, DataSource, logger, is_organization
 from .companieshouse_bot import CompaniesHouseBot
+
 
 class LinkedInErrorCodes():
 
@@ -97,7 +99,8 @@ class LinkedInBot():
         # Go one directory up
         parent_dir = os.path.dirname(script_dir)
         # Specify the relative path to your profile
-        relative_path = 'data/browser'
+
+        relative_path = f'data/browser/{LINKEDIN_EMAIL}'
         # Combine the parent directory with the relative path
         user_data_dir = os.path.join(parent_dir, relative_path)
 
@@ -109,9 +112,11 @@ class LinkedInBot():
             options = webdriver.ChromeOptions()
             driver_path = chromedriver_autoinstaller.install()
 
+        user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+
         options.add_argument('--start-maximized')
         options.add_argument("accept-language=en-US,en")
-        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+        options.add_argument(f"user-agent={user_agent}")
         options.add_argument(f'user-data-dir={user_data_dir}')
 
         options.binary_location = self.brave_path
@@ -275,8 +280,8 @@ class LinkedInBot():
         try:
             self.login(self.driver, self.user_email, self.user_pwd)
 
-            wait_from = 20
-            wait_to = 80
+            wait_from = 10
+            wait_to = 40
 
             self.from_filter = from_filter
             self.to_filter = to_filter
@@ -314,7 +319,7 @@ class LinkedInBot():
                 search_name = name + ' ' + company_name_short
 
                 try:
-                    if CompaniesHouseBot.is_organization(name):
+                    if is_organization(name):
                         self.logger.warning(f'{name} is an organization.')
                     else:
 
@@ -459,25 +464,63 @@ class LinkedInBot():
 
         return l
 
+    def simulate_user_behavior(self):
+        actions = ActionChains(self.driver)
+        body = self.driver.find_element(By.CSS_SELECTOR, 'body')
+
+        body_width = body.size['width']
+        body_height = body.size['height']
+
+        for _ in range(5):  # 10 times per call or as required
+            try:
+                x = random.randint(0, int((body_width - 1)/4))
+                y = random.randint(0, int((body_height - 1)/4))
+
+                actions.move_to_element_with_offset(body, x, y).perform()
+
+                time.sleep(random.uniform(0.5, 1.5))
+            except MoveTargetOutOfBoundsException:
+                logger.warning('Simulate user behavior moved out of bounds')
+
     def scroll_down(self):
-        # Wait for page to load
         time.sleep(5)
 
         last_height = self.driver.execute_script("return document.body.scrollHeight")
 
         while True:
-            # Scroll down to the bottom of the page
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            # Simulate user behavior before scrolling
+            self.simulate_user_behavior()
 
-            # Wait for the page to load
-            time.sleep(2)
+            # Scroll down by 800px
+            self.driver.execute_script("window.scrollBy(0, 800);")
+            time.sleep(random.uniform(0.5, 2))
 
-            # Calculate the new page height and compare with the previous height
+            # Occasionally scroll back up
+            if random.choice([True, False]):
+                self.driver.execute_script("window.scrollBy(0, -400);")
+                time.sleep(random.uniform(0.5, 1))
+
+            # Calculate new scroll height and compare
             new_height = self.driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
 
+            # If heights are the same it will try scrolling down one more time
+            if new_height == last_height:
+                # Try to scroll down again
+                self.driver.execute_script("window.scrollBy(0, 800);")
+
+                # Wait for a possible late load of new content
+                time.sleep(2)
+
+                # Check the scroll height again
+                new_height = self.driver.execute_script("return document.body.scrollHeight")
+
+                # If no new content loaded after the wait and the heights are still the same, we can break the loop
+                if new_height == last_height:
+                    break
+                else:
+                    last_height = new_height
+            else:
+                last_height = new_height
     def search(self, profile_name):
 
         profile_name_search = profile_name.lower().replace(' ', '%20')

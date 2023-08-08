@@ -30,7 +30,7 @@ from twisted.python.failure import Failure
 from twisted.internet import reactor, defer
 
 from uuid import uuid5, NAMESPACE_DNS
-from .common import PendingStatus, DataSource, get_profile_uuid, logger, is_organization, get_persons
+from .common import PendingStatus, DataSource, get_profile_uuid, logger, is_organization, get_persons, get_aligned_name, remove_titles
 from .config import TESSDATA_PATH, TESSERACT_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT, POPPLER_PATH, BRAVE_PATH # these imports are required for setup
 
 # pytesseract segmentation modes (--psm)
@@ -419,7 +419,7 @@ class CompaniesHouseBot(scrapy.Spider):
                         if role is not None:
                             name = self.strip(response.xpath(f'//dd[@id="case_{i}_practitioner_{j}_name"]/text()').get())
                             address = self.strip(response.xpath(f'//span[@id="case_{i}_practitioner_{j}_address"]/text()').get())
-                            name_without_titles = self.remove_titles(name.strip())
+                            name_without_titles = remove_titles(name)
                             practitioners.append({'name': name_without_titles, 'address': address, 'role': role})
                         else:
                             break
@@ -510,8 +510,8 @@ class CompaniesHouseBot(scrapy.Spider):
         for selector in response.xpath('//div[@class="appointments-list"]/*'):
             if i in allowed_i:
                 officer_dict = {}
-                name_without_titles = self.remove_titles(self.strip(response.xpath(f'//span[@id="officer-name-{i}"]/a/text()').get()).title())
-                officer_dict['name'] = name_without_titles
+                name_without_titles = remove_titles(self.strip(response.xpath(f'//span[@id="officer-name-{i}"]/a/text()').get()).title())
+                officer_dict['name'] = get_aligned_name(name_without_titles)
                 url_relative = self.strip(response.xpath(f'//span[@id="officer-name-{i}"]/a[@class="govuk-link"]/@href').get())
                 officer_dict['appointments_url'] = url = self.base_url + url_relative
 
@@ -594,19 +594,21 @@ class CompaniesHouseBot(scrapy.Spider):
             # convert to usable format (input into LinkedInBot)
 
             logger.info(f'company: {self.crunchbase_company_name} get_persons')
-            logger.debug(f'company: {self.crunchbase_company_name} get_persons. data: {json.dumps(persons)}')
+            print('\n')
+            print(json.dumps(persons))
+            print('\n')
 
             for item in persons['items']:
-                profile_name = item['name'].title()
-                full_name = item['full_name'].title()
+                profile_name = item['profile_name'].title()
+                name = item['name'].title()
 
                 date_of_birth = item['date_of_birth']
                 # add born on to guid
-                uuid_profile_str = get_profile_uuid(full_name, uuid)
+                uuid_profile_str = get_profile_uuid(name, uuid)
                 uuid_profile = uuid5(NAMESPACE_DNS, uuid_profile_str)
                 occupations = item['occupation']
 
-                values_pending_companieshouse = [str(uuid_profile), uuid, profile_name, full_name, occupations, date_of_birth, source, status,
+                values_pending_companieshouse = [str(uuid_profile), uuid, profile_name, name, occupations, date_of_birth, source, status,
                                                   version, created_at, updated_at]
 
                 query_pending_linkedin = f"INSERT INTO pending ({', '.join(columns_companieshouse)}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) " \
@@ -954,7 +956,7 @@ class CompaniesHouseBot(scrapy.Spider):
                             if shareholder == '':
                                 raise ValueError('shareholder not found')
                             is_company = is_organization(shareholder)
-                            name_without_titles = self.remove_titles(shareholder.strip())
+                            name_without_titles = remove_titles(shareholder)
                             content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                     i += 1
         except Exception as ex:
@@ -1058,7 +1060,7 @@ class CompaniesHouseBot(scrapy.Spider):
                         if shareholder == '':
                             raise ValueError('shareholder not found')
 
-                        name_without_titles = self.remove_titles(shareholder.strip())
+                        name_without_titles = remove_titles(shareholder)
                         is_company = is_organization(shareholder)
                         content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                 i += 1
@@ -1261,7 +1263,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
         # change names to same as in shareholders dictionary
         for item in content['INITIAL SHAREHOLDINGS']:
-            item['name'] = self.remove_titles(item['name'].strip())
+            item['name'] = remove_titles(item['name'])
             if 'class_of_share' in item:
                 item['share_type'] = item.pop('class_of_share')
             if 'number_of_shares' in item:
@@ -1270,37 +1272,6 @@ class CompaniesHouseBot(scrapy.Spider):
             item['is_company'] = is_company
         return content
         # print(json.dumps(content, sort_keys = True, indent = 4))
-
-    @staticmethod
-    def remove_titles(name,
-                      title_identifiers=['MR', 'MR.', 'MRS', 'MRS.', 'MISS', 'MISS.', 'MS', 'MS.', 'DR', 'DR.', 'PROF',
-                                         'PROF.', 'SIR', 'SIR.', 'LORD', 'LORD.',
-                                         'LADY', 'LADY.', 'PHD', 'PHD.', 'REV', 'REV.', 'FR', 'FR.', 'BARON', 'BARON.',
-                                         'BARONESS', 'BARONESS.', 'SULTAN', 'SULTAN.',
-                                         'PRINCE', 'PRINCE.', 'PRINCESS', 'PRINCESS.', 'DUKE', 'DUKE.', 'DUCHESS',
-                                         'DUCHESS.', 'EARL', 'EARL.', 'COUNTESS', 'COUNTESS.',
-                                         'VISCOUNT', 'VISCOUNT.', 'VISCOUNTESS', 'VISCOUNTESS.', 'AMB', 'AMB.', 'ADM',
-                                         'ADM.', 'CAPT', 'CAPT.', 'COL', 'COL.', 'CMDR',
-                                         'CMDR.', 'LT', 'LT.', 'MAJ', 'MAJ.', 'SGT', 'SGT.', 'PVT', 'PVT.', 'REV',
-                                         'REV.', 'FR', 'FR.', 'BROTHER', 'BROTHER.', 'SISTER',
-                                         'SISTER.', 'FATHER', 'FATHER.', 'MOTHER', 'MOTHER.', 'RABBI', 'RABBI.',
-                                         'SHEIKH', 'SHEIKH.', 'AYATOLLAH', 'AYATOLLAH.', 'PRESIDENT',
-                                         'PRESIDENT.', 'PRIME MINISTER', 'PRIME MINISTER.', 'KING', 'KING.', 'QUEEN',
-                                         'QUEEN.']):
-        # Prepare pattern (escape each value to handle special regex characters, join with '|')
-        pattern = '|'.join(re.escape(value) for value in title_identifiers)
-
-        # Create full pattern with custom "word boundaries", case insensitive
-        full_pattern = r'(?:(?<=\W)|^)(' + pattern + r')(?:[.]?(?=\W)|$)'
-        full_pattern = re.compile(full_pattern, re.IGNORECASE)
-
-        # Replace all occurrences of the organization identifiers with an empty string
-        cleaned_name = re.sub(full_pattern, '', name)
-
-        # Remove any leading or trailing whitespaces from the cleaned name
-        cleaned_name = cleaned_name.strip()
-
-        return cleaned_name
 
 
 def run_companieshouse_bot(uuids_filter='*', category_groups_list_filter='*', country_code_filter='*',
