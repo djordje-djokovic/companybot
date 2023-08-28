@@ -666,9 +666,9 @@ def get_logger(name):
     console_handler.setLevel(logging.INFO)
 
     # Create a file handler and set its log level
-    os.makedirs('log', exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
     utc_str = datetime.utcnow().strftime('%Y%m%dT%H%M%S')
-    log_name = f'log\\companybot_{utc_str}.log'
+    log_name = f'logs\\companybot_{utc_str}.log'
     file_handler = logging.FileHandler(log_name, encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
 
