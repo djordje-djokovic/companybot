@@ -16,7 +16,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as BraveService
-from selenium.common.exceptions import TimeoutException, MoveTargetOutOfBoundsException
+from selenium.common.exceptions import TimeoutException, MoveTargetOutOfBoundsException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
@@ -149,7 +149,7 @@ class LinkedInBot():
         # check if login is required:
         try:
             driver.get('https://www.linkedin.com/feed')
-            WebDriverWait(driver, 10).until(EC.title_contains("Feed | LinkedIn"))
+            WebDriverWait(driver, 60).until(EC.title_contains("Feed | LinkedIn"))
             self.logger.info('Already logged in.')
             return
 
@@ -167,19 +167,19 @@ class LinkedInBot():
 
             # Wait until username field is loaded and find it
             try:
-                username = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "username")))
+                username = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.ID, "username")))
                 # Enter Your Email Address
                 username.send_keys(user_email)
             except TimeoutException:
                 self.logger.info("Username already entered. Just needs password.")
 
             # Wait until password field is loaded and find it
-            pword = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "password")))
+            pword = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.ID, "password")))
             # Enter Your Password
             pword.send_keys(user_pwd)
 
             # Wait until submit button is loaded and find it
-            submit_button = WebDriverWait(driver, 10).until(
+            submit_button = WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.XPATH, "//button[@type='submit']")))
             # Click the submit button
             submit_button.click()
@@ -280,8 +280,8 @@ class LinkedInBot():
         try:
             self.login(self.driver, self.user_email, self.user_pwd)
 
-            wait_from = 10
-            wait_to = 40
+            wait_from = 5
+            wait_to = 25
 
             self.from_filter = from_filter
             self.to_filter = to_filter
@@ -298,27 +298,27 @@ class LinkedInBot():
             i = 0
             for row in data:
                 i += 1
-                company_dict = {'properties': {}, 'cards': {}, 'source': DataSource.linkedin.name}
-                company_dict['properties']['parsing_date'] = datetime.now().strftime('%Y-%m-%d')
-
-                company_item = {}
-                company_item['persons'] = [] # profiles
-                uuid = row['uuid']
-                uuid_parent = row['uuid_parent']
-                company_dict['properties']['uuid'] = uuid_parent
-                full_company_name = company_dict['properties']['companieshouse_company_name'] = row['companieshouse_data']['properties']['company_name']
-                company_id = company_dict['properties']['companieshouse_id'] = row['companieshouse_data']['properties']['company_id']
-
-                profile_item = {'parsing_date': datetime.now().strftime('%Y-%m-%d')}
-                occupations = row['category_groups_list']
-
-                name = row['name']
-                full_name = row['legal_name']
-
-                company_name_short = self.min_case(full_company_name)
-                search_name = name + ' ' + company_name_short
-
                 try:
+                    company_dict = {'properties': {}, 'cards': {}, 'source': DataSource.linkedin.name}
+                    company_dict['properties']['parsing_date'] = datetime.now().strftime('%Y-%m-%d')
+
+                    company_item = {}
+                    company_item['persons'] = [] # profiles
+                    uuid = row['uuid']
+                    uuid_parent = row['uuid_parent']
+                    company_dict['properties']['uuid'] = uuid_parent
+                    full_company_name = company_dict['properties']['companieshouse_company_name'] = row['companieshouse_data']['properties']['company_name']
+                    company_id = company_dict['properties']['companieshouse_id'] = row['companieshouse_data']['properties']['company_id']
+
+                    profile_item = {'parsing_date': datetime.now().strftime('%Y-%m-%d')}
+                    occupations = row['category_groups_list']
+
+                    name = row['name']
+                    full_name = row['legal_name']
+
+                    company_name_short = self.min_case(full_company_name)
+                    search_name = name + ' ' + company_name_short
+
                     if is_organization(name):
                         self.logger.warning(f'{name} is an organization.')
                     else:
@@ -375,6 +375,14 @@ class LinkedInBot():
                         company_dict['cards'] = company_item
                         if self.callback_company: self.callback_company(company_dict)
                         self.companies.append(company_dict)
+
+                except WebDriverException as e:
+                    if "disconnected: not connected to DevTools" in str(e):
+                        print("The browser seems to have disconnected. Attempting to reconnect...")
+                        self.driver.quit()  # Close the disconnected session
+                        time.sleep(60)
+                        self.driver = self.init_driver(headless=self.headless, proxy=None)
+                        self.login(self.driver, self.user_email, self.user_pwd)
 
                 except Exception as ex:
 

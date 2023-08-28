@@ -73,7 +73,6 @@ def main(
                          callback_company=linkedin_company, callback_profile=linkedin_profile,
                          callback_finish=linkedin_finish)
 
-
 if __name__ == '__main__':
 
     def parse_list_of_lists(input_string):

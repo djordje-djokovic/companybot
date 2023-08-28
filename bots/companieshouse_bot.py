@@ -1349,7 +1349,7 @@ def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='
         except Exception as ex:
             logger.error(f'company: {crunchbase_company_name} {str(ex)}')
 
-    reactor.stop()
+    reactor.active()
 
 def write_failed(uuid, crunchbase_company_name, json_rest_api):
 

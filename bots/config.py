@@ -24,8 +24,12 @@ DB_USER ="postgres"
 DB_PASSWORD ="password"
 DB_PORT = 5433
 
-LINKEDIN_EMAIL = 'abdulaibragimov@web.de' # companybot001@proton.me'  #'companybot001+001@proton.me' #'djdjoko@gmail.com'
-LINKEDIN_PWD = 'WhuPPZHrUAi'
+# login uni
+LINKEDIN_EMAIL = 'modest71rus@gmx.at' # companybot001@proton.me'  #'companybot001+001@proton.me' #'djdjoko@gmail.com'
+LINKEDIN_PWD = 'TazSKFFhKTh'
+
+
+#
 
 # organizations found: 14902 {'category_groups_list': ['Administrative Services'], 'country_code': ['GBR']}
 # organizations found: 12306 {'category_groups_list': ['Advertising'], 'country_code': ['GBR']}
