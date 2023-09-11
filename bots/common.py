@@ -153,23 +153,26 @@ def get_organizations_from_crunchbase_csv(uuids_filter, category_groups_list_fil
                 else:
                     values = split_csv(line)
 
-                    if values and is_guid(values[0]):
-                        matched = np.zeros(len(filter))
-                        j = 0
-                        for filter_key, filter_value_list in filter.items():
-                            key_idx = header.index(filter_key)
-                            if len(values) == len(header):
-                                value = values[key_idx].strip('"').strip('\n').strip()
-                                for filter_value in filter_value_list:
-                                    if filter_value in value:
-                                        matched[j] = 1
+                    if values and is_guid(values[0]) and (len(values) == len(header)):
+                        if len(filter):
+                            matched = np.zeros(len(filter))
+                            j = 0
+                            for filter_key, filter_value_list in filter.items():
+                                key_idx = header.index(filter_key)
+                                if len(values) == len(header):
+                                    value = values[key_idx].strip('"').strip('\n').strip()
+                                    for filter_value in filter_value_list:
+                                        if filter_value in value:
+                                            matched[j] = 1
+                                            j += 1
+                                            break
+                                    else:
                                         j += 1
-                                        break
+                                        continue
                                 else:
-                                    j += 1
-                                    continue
-                            else:
-                                break
+                                    break
+                        else:
+                            matched = 0
 
                         if len(filter) == np.sum(matched):
 
@@ -180,7 +183,7 @@ def get_organizations_from_crunchbase_csv(uuids_filter, category_groups_list_fil
                                 founded_on = date_parser.parse(founded_on_str)
                                 if from_filter <= founded_on <= to_filter:  # Apply date range filter
                                     organizations_list.append(dict(zip(header, values)))
-                            elif from_filter==datetime.min and to_filter==datetime.max:
+                            elif from_filter == datetime.min and to_filter == datetime.max:
                                 organizations_list.append(dict(zip(header, values)))
 
             except Exception as ex:
@@ -379,7 +382,13 @@ def clean_list_of_dictionaries(data):
             if value == '':
                 d[key] = None
 
-# writes all organizations from csv file to database. we use it to create for example a GBR subset of data
+
+def chunk_data(source, chunk_size):
+    """Generator to divide the source data into chunks."""
+    for i in range(0, len(source), chunk_size):
+        yield source[i:i + chunk_size]
+
+
 def write_organizations_from_csv(organizations, logging=None):
     # write to organizations table
     conn = psycopg2.connect(
@@ -389,23 +398,35 @@ def write_organizations_from_csv(organizations, logging=None):
         password=DB_PASSWORD,
         port=DB_PORT
     )
-    data = organizations
     table_name = 'crunchbase_organizations'
     cursor = conn.cursor()
 
-    columns = data[0].keys()
+    columns = organizations[0].keys()
     query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES %s ON CONFLICT DO NOTHING"
 
-    # Extract values from the list of dictionaries
-    values = [tuple(d.values()) for d in data]
+    # Process the data in chunks
+    total_inserted = 0
+    for index, data_chunk in enumerate(chunk_data(organizations, 1000), start=1):
+        # Extract values from the chunk of dictionaries
+        values = [tuple(d.values()) for d in data_chunk]
 
-    # Execute the bulk insert query
-    execute_values(cursor, query, values)
+        # Execute the bulk insert query for the current chunk
+        execute_values(cursor, query, values)
+
+        chunk_size = len(data_chunk)
+        total_inserted += chunk_size
+
+        # Log which chunk is written
+        if logging:
+            logging.info(f'Written chunk {index}: {chunk_size} records.')
 
     conn.commit()
     cursor.close()
     conn.close()
-    logger.info(f'Writing organizations from csv successful: {len(data)}')
+
+    if logging:
+        logging.info(f'Writing organizations from csv successful: {total_inserted}')
+
 
 '''
 This function queries the crunchbase_organizations table and writes them into pending table. wildcard '*' is supported.
