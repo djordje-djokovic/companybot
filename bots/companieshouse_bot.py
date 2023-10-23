@@ -30,8 +30,8 @@ from twisted.python.failure import Failure
 from twisted.internet import reactor, defer
 
 from uuid import uuid5, NAMESPACE_DNS
-from .common import PendingStatus, DataSource, get_profile_uuid, logger, is_organization, get_persons, get_aligned_name, remove_titles
-from .config import TESSDATA_PATH, TESSERACT_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT, POPPLER_PATH, BRAVE_PATH # these imports are required for setup
+from bots.common import PendingStatus, DataSource, get_profile_uuid, logger, is_organization, get_persons, get_aligned_name, remove_titles
+from bots.config import TESSDATA_PATH, TESSERACT_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT, POPPLER_PATH, BRAVE_PATH # these imports are required for setup
 
 # pytesseract segmentation modes (--psm)
 # Page segmentation modes:

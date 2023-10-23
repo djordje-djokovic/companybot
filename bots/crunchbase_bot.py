@@ -2,8 +2,8 @@ import time, requests, json, random
 from datetime import datetime
 
 import psycopg2
-from .common import PendingStatus, DataSource, logger, get_data_from_pending
-from .config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, CATEGORY_LIST_GROUPS, CRUNCHBASE_KEY
+from bots.common import PendingStatus, DataSource, logger, get_data_from_pending
+from bots.config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, CATEGORY_LIST_GROUPS, CRUNCHBASE_KEY
 class CrunchBaseBot():
     __version__ = 'CrunchBaseBot 0.9'
 

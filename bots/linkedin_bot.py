@@ -20,9 +20,9 @@ from selenium.common.exceptions import TimeoutException, MoveTargetOutOfBoundsEx
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from .config import LINKEDIN_EMAIL, LINKEDIN_PWD, BRAVE_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT
-from .common import PendingStatus, DataSource, logger, is_organization
-from .companieshouse_bot import CompaniesHouseBot
+from bots.config import LINKEDIN_EMAIL, LINKEDIN_PWD, BRAVE_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT
+from bots.common import PendingStatus, DataSource, logger, is_organization
+from bots.companieshouse_bot import CompaniesHouseBot
 
 
 class LinkedInErrorCodes():
