@@ -454,7 +454,14 @@ class CompaniesHouseBot(scrapy.Spider):
         company_dict['status'] = self.strip(response.xpath(f'//dd[@class="text data"][@id="company-status"]/text()').get())
         company_dict['type'] = self.strip(response.xpath(f'//dd[@class="text data"][@id="company-type"]/text()').get())
         dt = self.strip(response.xpath(f'//dd[@class="data"][@id="company-creation-date"]/text()').get())
+        dt_dissolve = self.strip(response.xpath(f'//dd[@class="data"][@id="cessation-date"]/text()').get())
         company_dict['incorporated_on'] = self.to_date(dt)
+
+        if dt_dissolve is not None:
+            company_dict['dissolved_on'] = self.to_date(dt_dissolve)
+        else:
+            company_dict['dissolved_on'] = None
+
         company_dict['company_name'] = self.strip(response.xpath(f'//p[@class="heading-xlarge"]/text()').get()).title()
         sics = []
         for i in range(0, 10):
