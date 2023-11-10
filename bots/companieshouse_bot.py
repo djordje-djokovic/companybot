@@ -134,7 +134,7 @@ class CompaniesHouseBot(scrapy.Spider):
         )
         self.conn.autocommit = False
     @staticmethod
-    def get_data_from_pending(uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*', fr=datetime.max, to=datetime.max, force=False):
+    def get_data_from_pending(uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*', fr=datetime.min, to=datetime.max, force=False):
 
         assert type(uuids) == list or uuids == '*'
         assert type(uuids_parent) == list or uuids_parent == '*'
@@ -601,14 +601,12 @@ class CompaniesHouseBot(scrapy.Spider):
             for item in persons['items']:
                 profile_name = item['profile_name'].title()
                 name = item['name'].title()
-
                 date_of_birth = item['date_of_birth']
                 # add born on to guid
-                uuid_profile_str = get_profile_uuid(name, uuid)
-                uuid_profile = uuid5(NAMESPACE_DNS, uuid_profile_str)
+                uuid_profile = item['uuid']
                 occupations = item['occupation']
 
-                values_pending_companieshouse = [str(uuid_profile), uuid, profile_name, name, occupations, date_of_birth, source, status,
+                values_pending_companieshouse = [uuid_profile, uuid, profile_name, name, occupations, date_of_birth, source, status,
                                                   version, created_at, updated_at]
 
                 query_pending_linkedin = f"INSERT INTO pending ({', '.join(columns_companieshouse)}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) " \

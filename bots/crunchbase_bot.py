@@ -12,8 +12,8 @@ class CrunchBaseBot():
 
     def run(self, uuids_filter='*', category_groups_list_filter='*', country_code_filter='*', from_filter=datetime.min, to_filter=datetime.max, force=False):
 
-        wait_from = 1
-        wait_to = 4
+        wait_from = 2
+        wait_to = 7
 
         try:
             self.conn = psycopg2.connect(

@@ -200,7 +200,7 @@ class LinkedInBot():
 
     @staticmethod
     def get_data_from_pending(uuids='*', uuids_parent='*', category_groups_list='*', country_codes='*',
-                              fr=datetime.max, to=datetime.max, occupations='*',
+                              fr=datetime.min, to=datetime.max, occupations='*',
                               force=False):
 
         def create_occupation_sql_expression(list_of_lists_or_asterisk):
