@@ -88,34 +88,34 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='CompanyBot Command Line Arguments')
 
-    parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='Coumpany UUIDs filter')
-    parser.add_argument('--uuids-profile-filter', nargs='+', default=['*'], help='Linkedin UUIDs profile filter')
-    parser.add_argument('--category-groups-list-filter', nargs='+', default=['Artificial Intelligence'], help=f'Company category group filter from {str(CATEGORY_LIST_GROUPS)}')
-    parser.add_argument('--country-code-filter', nargs='+', default=['GBR'], help='Company country code filter')
+    parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='Coumpany UUIDs filter. Default "*"')
+    parser.add_argument('--uuids-profile-filter', nargs='+', default=['*'], help='Linkedin UUIDs profile filter. Default "*"')
+    parser.add_argument('--category-groups-list-filter', nargs='+', default=['Artificial Intelligence'], help=f'Company category group filter from {str(CATEGORY_LIST_GROUPS)}. Default "Artificial Intelligence"')
+    parser.add_argument('--country-code-filter', nargs='+', default=['GBR'], help='Company country code filter. Default "GBR"')
     parser.add_argument('--from-filter', type=date_parser.parse, default=datetime.min, help='Founding start date filter')
     parser.add_argument('--to-filter', type=date_parser.parse, default=datetime.max, help='Founding end date filter')
 
     parser.add_argument('--initialize-run', choices=['true', 'false'], default='false', help='Run initialization process to setup database and tables. '
                                                                                              'WARNING! When using the --initialize-force option, exercise caution as it will '
                                                                                              'overwrite the pending table state to True. This action will repopulate all '
-                                                                                             'selected records by the bots once again.')
-    parser.add_argument('--initialize-drop-tables', choices=['true', 'false'], default='false', help='Drop existing database tables')
-    parser.add_argument('--initialize-download-csv', choices=['true', 'false'], default='false', help='Download raw CSV data from Crunchbase')
-    parser.add_argument('--initialize-write-organizations', choices=['true', 'false'], default='false', help='Write organizations from Crunchbase csv file')
+                                                                                             'selected records by the bots once again. Default "false"')
+    parser.add_argument('--initialize-drop-tables', choices=['true', 'false'], default='false', help='Drop existing database tables. Default "false"')
+    parser.add_argument('--initialize-download-csv', choices=['true', 'false'], default='false', help='Download raw CSV data from Crunchbase. Default "false"')
+    parser.add_argument('--initialize-write-organizations', choices=['true', 'false'], default='false', help='Write organizations from Crunchbase csv file. Default "false"')
     parser.add_argument('--initialize-pending-force', choices=['true', 'false'], default='false', help='Specify if the pending state will be force reset. WARNING! When using the --initialize-force option, exercise caution as it will '
                                                                                              'overwrite the pending table state to True. This action will repopulate all '
-                                                                                             'selected records by the bots once again.')
+                                                                                             'selected records by the bots once again. Default "false"')
 
-    parser.add_argument('--crunchbase-run', choices=['true', 'false'], default='false', help='Run the Crunchbase bot')
-    parser.add_argument('--crunchbase-force', choices=['true', 'false'], default='false', help='Force updating Crunchbase data')
+    parser.add_argument('--crunchbase-run', choices=['true', 'false'], default='false', help='Run the Crunchbase bot. Default "false"')
+    parser.add_argument('--crunchbase-force', choices=['true', 'false'], default='false', help='Force updating Crunchbase data. Default "false"')
 
-    parser.add_argument('--companieshouse-run', choices=['true', 'false'], default='false', help='Run the Companies House bot')
-    parser.add_argument('--companieshouse-force', choices=['true', 'false'], default='false', help='Force updating Companies House data')
+    parser.add_argument('--companieshouse-run', choices=['true', 'false'], default='false', help='Run the Companies House bot. Default "false"')
+    parser.add_argument('--companieshouse-force', choices=['true', 'false'], default='false', help='Force updating Companies House data. Default "false"')
 
-    parser.add_argument('--linkedin-run', choices=['true', 'false'], default='false', help='Run the LinkedIn bot')
-    parser.add_argument('--linkedin-force', choices=['true', 'false'], default='false', help='Force updating LinkedIn data')
+    parser.add_argument('--linkedin-run', choices=['true', 'false'], default='false', help='Run the LinkedIn bot. Default "false"')
+    parser.add_argument('--linkedin-force', choices=['true', 'false'], default='false', help='Force updating LinkedIn data. Default "false"')
     # parser.add_argument('--linkedin-occupations-filter', nargs='+', default=[, 'Shareholder'], help='LinkedIn occupations filter. Defines occupations for which profiles should be scraped.')
-    parser.add_argument("--linkedin-occupations-filter", type=parse_list_of_lists, nargs="?", default="Founder, Director Shareholder", help="List of lists of LinkedIn occupations filter. Each inside list element needs to match all list element values in the database or match the all next list elements in database. Defines occupations for which profiles should be scraped.")
+    parser.add_argument("--linkedin-occupations-filter", type=parse_list_of_lists, nargs="?", default="Founder, Director Shareholder", help='List of lists of LinkedIn occupations filter. Each inside list element needs to match all list element values in the database or match the all next list elements in database. Defines occupations for which profiles should be scraped. "Default Founder, Director Shareholder"')
 
     args = parser.parse_args()
 
