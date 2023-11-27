@@ -74,7 +74,6 @@ def main(
                          callback_finish=linkedin_finish)
 
 if __name__ == '__main__':
-
     def parse_list_of_lists(input_string):
         try:
             # Split the input string by commas to get individual elements

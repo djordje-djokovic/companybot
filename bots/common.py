@@ -1,7 +1,7 @@
 from fuzzyname import FuzzyName as Name
 from bots.config import DB_NAME, DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, CRUNCHBASE_DIR, POPPLER_PATH, BRAVE_PATH, CRUNCHBASE_KEY
 from uuid import uuid5, NAMESPACE_DNS
-
+import copy
 import time
 from datetime import datetime
 from dateutil import parser as date_parser
@@ -55,6 +55,153 @@ def split_csv(csv_string):
     rows = next(reader)
     return rows
 
+def get_companieshouse_data_with_unique_names(unique_entities, companieshouse_data):
+    data = copy.deepcopy(companieshouse_data)
+    # Retrieve the parsing date from the data's properties
+    parsing_date = data['properties']['parsing_date']
+    # Initialize the last shareholder update to the parsing date
+    last_shareholder_date = parsing_date
+
+    # Make deep copies of the unique entities and different sections of the data
+    # This is done to prevent modifying the original data structures during updates
+    unique_entities_copy = copy.deepcopy(unique_entities['items'])
+
+    # Copy the 'shareholding' section for updating
+    shareholding_update = copy.deepcopy(data['cards']['shareholding'])
+    # Copy the 'incorporation' section for updating
+    incorporation_update = copy.deepcopy(data['cards']['incorporation']['items'])
+    # Copy the 'officer' section for updating
+    officer_update = copy.deepcopy(data['cards']['officer']['items'])
+
+    # Create copies of the original data for checking updates later
+    shareholding_check = copy.deepcopy(data['cards']['shareholding'])
+    incorporation_check = copy.deepcopy(data['cards']['incorporation']['items'])
+    officer_check = copy.deepcopy(data['cards']['officer']['items'])
+
+    # Initialize an index to track the position within unique entities
+    index = 0
+    # Iterate over each unique entity in the list of entities
+    for entity in unique_entities['items']:
+        # Iterate over each occupation listed for the entity
+        for occupation in entity['occupation']:
+
+            # Check if the occupation is 'Shareholder'
+            if occupation == 'Shareholder':
+
+                # Iterate over the 'shareholding' data items
+                for received_date, item in data['cards']['shareholding'].items():
+
+                    # Retrieve the filing date from the current item
+                    filing_date = start_date = item['filing_date']
+                    # Initialize a total shares counter
+                    total_shares = 0
+                    # Sum up the total shares from all share items
+                    for x in item['items']:
+                        total_shares += x['shares']
+
+                    # Initialize a list to keep track of shareholders that will be deleted
+                    shareholders_to_delete = []
+
+                    # Initialize an index for shareholders
+                    i_shareholder = 0
+                    # Iterate over each shareholder in the current item
+                    for shareholder in item['items']:
+                        # Check if the shareholder's name is an alias of the entity
+                        if shareholder['name'] in entity['alias']:
+                            # Update the shareholder's information with the entity's details
+                            shareholder_update = shareholding_update[received_date]['items'][i_shareholder]
+                            shareholder_update['name_original'] = shareholder['name']
+                            shareholder_update['name'] = entity['name']
+                            shareholder_update['uuid'] = entity['uuid']
+                            shareholder_update['is_organization'] = entity['is_organization']
+                            del shareholder_update['is_company']
+
+                            # Add this shareholder to the list of shareholders to delete
+                            shareholders_to_delete.append(shareholder)
+
+                            # Increment the shareholder index
+                        i_shareholder += 1
+
+                    # Check if the received date is in the shareholding check list
+                    if received_date in shareholding_check:
+                        # Iterate over the shareholders to delete
+                        for shareholder in shareholders_to_delete:
+                            # Remove the shareholder from the check list
+                            shareholding_check[received_date]['items'].remove(shareholder)
+
+                        # If there are no items left after deletion, remove the item completely
+                        if not shareholding_check[received_date]['items']:
+                            del shareholding_check[received_date]
+
+                    # Update the last shareholder date with the filing date
+                    last_shareholder_date = filing_date
+            # Placeholders for other occupation cases (Director, Founder, Secretary)
+            elif occupation == 'Director':
+                i_director = 0
+                for director in data['cards']['officer']['items']:
+                    if director['name'] in entity['alias']:
+                        director_update = officer_update[i_director]
+                        director_update['name_original'] = director['name']
+                        director_update['name'] = entity['name']
+                        director_update['uuid'] = entity['uuid']
+                        director_update['is_organization'] = entity['is_organization']
+                        # del director_update['is_company']
+                        officer_check.remove(director)
+                    i_director += 1
+            elif occupation == 'Secretary':
+                i_secretary = 0
+                for secretary in data['cards']['officer']['items']:
+                    if secretary['name'] in entity['alias']:
+                        secretary_update = officer_update[i_secretary]
+                        secretary_update['name_original'] = secretary['name']
+                        secretary_update['name'] = entity['name']
+                        secretary_update['uuid'] = entity['uuid']
+                        secretary_update['is_organization'] = entity['is_organization']
+                        # del secretary_update['is_company']
+                        officer_check.remove(secretary)
+                    i_secretary += 1
+            elif occupation == 'Founder':
+                i_founder = 0
+                for founder in data['cards']['incorporation']['items']:
+                    if founder['name'] in entity['alias']:
+                        founder_update = incorporation_update[i_founder]
+                        founder_update['name_original'] = founder['name']
+                        founder_update['name'] = entity['name']
+                        founder_update['uuid'] = entity['uuid']
+                        founder_update['is_organization'] = entity['is_organization']
+                        del founder_update['is_company']
+                        incorporation_check.remove(founder)
+
+                    i_founder += 1
+            else:
+                # Raise an error if there is an undefined occupation
+                raise NotImplementedError()
+            # Remove the processed occupation from the entity's copy
+            unique_entities_copy[index]['occupation'].remove(occupation)
+        # Increment the index for the next entity
+        index += 1
+
+    # Assertions to ensure that all occupations are processed and shareholdings are updated
+    assert (len([d for d in unique_entities_copy if d['occupation'] != []]) == 0)
+    assert (len(shareholding_check) == 0)
+    assert (len(incorporation_check) == 0)
+    assert (len(officer_check) == 0)
+
+    # Sort the updated shareholding items by name for each date received
+    for received_date, item in shareholding_update.items():
+        item["items"].sort(key=lambda x: x["name"])
+
+    # Sort the updated founders items by name
+    incorporation_update.sort(key=lambda x: x["name"])
+
+    # Sort the updated founders items by name
+    officer_update.sort(key=lambda x: x["name"])
+
+    data['cards']['shareholding'] = shareholding_update
+    data['cards']['incorporation']['items'] = incorporation_update
+    data['cards']['officer']['items'] = officer_update
+
+    return data
 
 def remove_titles(name):
     name = name.replace('.', ' ').strip()
