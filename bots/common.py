@@ -1149,7 +1149,7 @@ def get_unique_founders(people, ignore_organization=True):
         person = people_copy.pop(0)  # Start with the first person
 
         # If the name is a company name, skip it and continue with the next person
-        if ignore_organization and is_organization(person["name"]):
+        if not person or (ignore_organization and is_organization(person["name"])):
             continue
 
         # Separate the rest into duplicates and non-duplicates of this person
@@ -1175,7 +1175,7 @@ def get_unique_founders(people, ignore_organization=True):
                 merged_person["name"] = name.title()
                 merged_person["profile_name"] = profile_name.title()
             merged_person['alias'].add(p['name'])
-
+        merged_person['alias'] = list(merged_person['alias'])
         unique_people.append(merged_person)
         people_copy = non_duplicates  # Continue with the remaining people
     unique_people = sorted(unique_people, key=lambda x: x['name'])
@@ -1183,44 +1183,48 @@ def get_unique_founders(people, ignore_organization=True):
 
 
 def get_unique_shareholders(people, ignore_organization=True):
-    people_copy = []
-    for key, value in people.copy().items():
-        if value['items']: people_copy.extend(value['items'])
+    try:
+        people_copy = []
+        for key, value in people.copy().items():
+            if value['items'] and value['items'][0]:
+                people_copy.extend(value['items'])
 
-    unique_people = []
-    while people_copy:
-        person = people_copy.pop(0)  # Start with the first person
+        unique_people = []
+        while people_copy:
+            person = people_copy.pop(0)  # Start with the first person
 
-        # If the name is a company name, skip it and continue with the next person
-        if ignore_organization and is_organization(person["name"]):
-            continue
+            # If the name is a company name, skip it and continue with the next person
+            if not person or (ignore_organization and is_organization(person["name"])):
+                continue
 
-        # Separate the rest into duplicates and non-duplicates of this person
-        duplicates = []
-        non_duplicates = []
-        for other_person in people_copy:
-            similar_n = match_names(person["name"].lower(), other_person["name"].lower())
-            #             print(f'{person["name"]} | {other_person["name"]} | {similar_n}')
-            if similar_n:
-                duplicates.append(other_person)
-            else:
-                non_duplicates.append(other_person)
+            # Separate the rest into duplicates and non-duplicates of this person
+            duplicates = []
+            non_duplicates = []
+            for other_person in people_copy:
+                similar_n = match_names(person["name"].lower(), other_person["name"].lower())
+                #             print(f'{person["name"]} | {other_person["name"]} | {similar_n}')
+                if similar_n:
+                    duplicates.append(other_person)
+                else:
+                    non_duplicates.append(other_person)
 
-        # Merge the person and duplicates into a single record
-        merged_person = {"name": "", "category": "shareholder", "profile_name": "", "occupation": ['Shareholder'], "date_of_birth": None}
-        merged_person['alias'] = set()
+            # Merge the person and duplicates into a single record
+            merged_person = {"name": "", "category": "shareholder", "profile_name": "", "occupation": ['Shareholder'], "date_of_birth": None}
+            merged_person['alias'] = set()
 
-        for p in [person] + duplicates:
-            if len(p["name"]) > len(merged_person["name"]):  # Keep the longest name
-                name = p['name'].replace('-', ' ')
-                profile_name = get_profile_name(name)
+            for p in [person] + duplicates:
+                if len(p["name"]) > len(merged_person["name"]):  # Keep the longest name
+                    name = p['name'].replace('-', ' ')
+                    profile_name = get_profile_name(name)
 
-                merged_person["name"] = name.title()
-                merged_person["profile_name"] = profile_name.title()
-            merged_person['alias'].add(p['name'])
-        unique_people.append(merged_person)
-        people_copy = non_duplicates  # Continue with the remaining people
-    unique_people = sorted(unique_people, key=lambda x: x['name'])
+                    merged_person["name"] = name.title()
+                    merged_person["profile_name"] = profile_name.title()
+                merged_person['alias'].add(p['name'])
+            unique_people.append(merged_person)
+            people_copy = non_duplicates  # Continue with the remaining people
+        unique_people = sorted(unique_people, key=lambda x: x['name'])
+    except Exception as ex:
+        raise ValueError(f'get_unique_shareholders {ex}')
     return unique_people
 
 def get_unique_officers(officers, occupations_name='role', ignore_organization=True):
@@ -1322,7 +1326,7 @@ def get_unique_entities(entities, ignore_organization=True):
                 merged_entity["date_of_birth"] = e["date_of_birth"]
 
             merged_entity['alias'].update(e['alias'])
-
+        merged_entity['alias'] = list(merged_entity['alias'])
         merged_entity["occupation"] = list(sorted(set(merged_entity["occupation"])))
         merged_entity['is_organization'] = is_organization(merged_entity["name"])
         unique_entities.append(merged_entity)
@@ -1388,6 +1392,16 @@ def get_data_from_pending(source, uuids='*', uuids_parent='*', category_groups_l
     results = [dict(zip(columns, row)) for row in rows]
 
     return results
+
+def clean_and_convert_to_int(ocr_string):
+    # Use regular expression to remove any non-digit characters
+    cleaned_string = re.sub(r'[^\d]', '', ocr_string)
+    # Convert the cleaned string to an integer
+    if cleaned_string:  # Make sure the string is not empty
+        return int(cleaned_string)
+    else:
+        # Raise an error with a more descriptive message if there are no digits
+        raise ValueError(f"No digits found in OCR data: '{ocr_string}'")
 
 logger = get_logger('CompanyBot')
 logger.propagate = False

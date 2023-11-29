@@ -30,7 +30,7 @@ from twisted.python.failure import Failure
 from twisted.internet import reactor, defer
 
 from uuid import uuid5, NAMESPACE_DNS
-from bots.common import PendingStatus, DataSource, get_profile_uuid, logger, is_organization, get_persons, get_aligned_name, remove_titles
+from bots.common import clean_and_convert_to_int, PendingStatus, DataSource, get_profile_uuid, logger, is_organization, get_persons, get_aligned_name, remove_titles
 from bots.config import TESSDATA_PATH, TESSERACT_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT, POPPLER_PATH, BRAVE_PATH # these imports are required for setup
 
 # pytesseract segmentation modes (--psm)
@@ -750,6 +750,12 @@ class CompaniesHouseBot(scrapy.Spider):
                 if self.callback_finish: self.callback_finish(self.data)
 
             return
+        elif len(rows) == 2 and 'Company added to register' in rows[1].xpath('.//td/text()').extract()[2]:
+            logger.info(
+                f'company does not have any records: {self.crunchbase_company_name} page: {self.page_number_filing} completed. count: {self.parse_group_count}')
+            self.finished(self.data)
+            if self.callback_finish: self.callback_finish(self.data)
+            return
 
         # print('parse_filing_page:', self.page_number)
         i = 1
@@ -792,10 +798,11 @@ class CompaniesHouseBot(scrapy.Spider):
                             d = d[d.find('made up to') + 11:]
                             d = d[:d.find('\n')]
 
-                            if 'with' in d:
+                            if 'with' in d:  # with full list of shareholders
                                 filing_dt = self.to_date(d[:d.find('with') - 1])
                             else:
-                                raise ValueError('updates not found in confirmation statement string')
+                                continue
+                                # raise ValueError('updates not found in confirmation statement string')
 
                             update = True
                             annual_return_dict = self.parse_annual_return_ocr(url, filing_dt, self.poppler_path)
@@ -828,14 +835,14 @@ class CompaniesHouseBot(scrapy.Spider):
                 i += 1
 
         except Exception as ex:
-            logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
+            logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(ex)} {str(url)}')
             raise ValueError(str(ex), description, url)
 
         self.page_number_filing +=1
         next_page_url = f'https://find-and-update.company-information.service.gov.uk/company/{self.company_id}/filing-history?page={self.page_number_filing}'  #response.xpath(f'//ul[@class="pager"]/li[{self.page_number}]/a/@href').get()
         yield scrapy.Request(next_page_url, self.parse_filing)
 
-    def parse_confirmation_statement_ocr(self, url, dt, poppler_path):
+    def parse_confirmation_statement_ocr(self, url, dt, poppler_path, psm=4):
         # output_string = StringIO()
         # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07101408__20141210.pdf'
         # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07110878__20171222.pdf'
@@ -877,7 +884,7 @@ class CompaniesHouseBot(scrapy.Spider):
         key = 'COMPANY INFORMATION'
 
         for img in pages:
-            page = pytesseract.image_to_string(img, config='--psm 4').split('\n')
+            page = pytesseract.image_to_string(img, config=f'--psm {psm}').split('\n')
 
             for line in page:
 
@@ -935,7 +942,7 @@ class CompaniesHouseBot(scrapy.Spider):
                             shareholding_line = shareholding_line.split('shares held as at the date')[0].strip()
 
                             match = re.search(r"\d+", shareholding_line)
-                            shares = int(match.group())  # Get the matched number
+                            shares = clean_and_convert_to_int(match.group())  # Get the matched number
                             start_pos = match.start()  # Starting position of the number
                             end_pos = match.end()  # Ending position of the number
                             share_type = shareholding_line[end_pos:].strip()
@@ -965,111 +972,134 @@ class CompaniesHouseBot(scrapy.Spider):
                             content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
                     i += 1
         except Exception as ex:
-            logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
+            # logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
+            if psm == 4:
+                logger.info(f'company retrying with psm 6: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
+                try:
+                    content = self.parse_confirmation_statement_ocr(url, dt, poppler_path, psm=6)
+                    return content
+                except Exception as ex:
+                    raise ValueError(f'cannot parse confirmation statement str{ex}')
+
         logger.info(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} completed. {str(dt)} {url}')
         return content
 
-    def parse_annual_return_ocr(self, url, dt, poppler_path):
-        # output_string = StringIO()
-        # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07101408__20141210.pdf'
-        # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07110878__20171222.pdf'
-        # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07637003__20130517.pdf'
-        # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__08070525__20140516.pdf'
-        # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__08458210__20140322.pdf'
-        # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__08905651__20160221.pdf'
-        # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__09147492__20150725.pdf'
-        # # Convert PDF to image
-        # pages = convert_from_path(p)
+    def parse_annual_return_ocr(self, url, dt, poppler_path, psm=4):
+        try:
+            # output_string = StringIO()
+            # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07101408__20141210.pdf'
+            # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07110878__20171222.pdf'
+            # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__07637003__20130517.pdf'
+            # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__08070525__20140516.pdf'
+            # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__08458210__20140322.pdf'
+            # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__08905651__20160221.pdf'
+            # # p = 'C:\\projects\\uni\\sources\\companieshouse\\data\\test\\annual_return\\annual_return_AR01__09147492__20150725.pdf'
+            # # Convert PDF to image
+            # pages = convert_from_path(p)
 
-        logger.info(f'company: {self.crunchbase_company_name} date: {str(dt)} url: {url}')
+            logger.info(f'company: {self.crunchbase_company_name} date: {str(dt)} url: {url}')
 
-        r = session.get(url=url)
-        pages = convert_from_bytes(r.content, poppler_path=poppler_path)
+            r = session.get(url=url)
+            pages = convert_from_bytes(r.content, poppler_path=poppler_path)
 
-        # Read text from images using OCR
+            # Read text from images using OCR
 
-        sections = {'COMPANY INFORMATION': [], 'OFFICERS OF THE COMPANY':[], 'STATEMENT OF CAPITAL (SHARE CAPITAL)':[],
-                    'STATEMENT OF CAPITAL (TOTALS)': [], 'FULL DETAILS OF SHAREHOLDERS': [], 'AUTHORISATION': [],
-                    }
+            sections = {'COMPANY INFORMATION': [], 'OFFICERS OF THE COMPANY':[], 'STATEMENT OF CAPITAL (SHARE CAPITAL)':[],
+                        'STATEMENT OF CAPITAL (TOTALS)': [], 'FULL DETAILS OF SHAREHOLDERS': [], 'AUTHORISATION': [],
+                        }
 
-        key = 'COMPANY INFORMATION'
+            key = 'COMPANY INFORMATION'
 
-        for img in pages:
-            page = pytesseract.image_to_string(img, config='--psm 4').split('\n')
+            for img in pages:
+                page = pytesseract.image_to_string(img, config=f'--psm {psm}').split('\n')
 
-            for line in page:
+                for line in page:
 
-                # COMPANY INFORMATION
-                pass
-                # OFFICERS OF THE COMPANY
-                if 'OFFICERS OF THE COMPANY'.lower() in line.lower():
-                    key = 'OFFICERS OF THE COMPANY'
-                # STATEMENT OF CAPITAL (SHARE CAPITAL)
-                if 'STATEMENT OF CAPITAL (SHARE CAPITAL)'.lower() in line.lower():
-                    key = 'STATEMENT OF CAPITAL (SHARE CAPITAL)'
-                # STATEMENT OF CAPITAL (TOTALS)
-                if 'STATEMENT OF CAPITAL (TOTALS)'.lower() in line.lower():
-                    key = 'STATEMENT OF CAPITAL (TOTALS)'
-                # FULL DETAILS OF SHAREHOLDERS
-                if 'FULL DETAILS OF SHAREHOLDERS'.lower() in line.lower():
-                    key = 'FULL DETAILS OF SHAREHOLDERS'
-                # AUTHORISATION
-                if line.lower().startswith('AUTHORISATION'.lower()):
-                    key = 'AUTHORISATION'
-                sections[key].append(line)
+                    # COMPANY INFORMATION
+                    pass
+                    # OFFICERS OF THE COMPANY
+                    if 'OFFICERS OF THE COMPANY'.lower() in line.lower():
+                        key = 'OFFICERS OF THE COMPANY'
+                    # STATEMENT OF CAPITAL (SHARE CAPITAL)
+                    if 'STATEMENT OF CAPITAL (SHARE CAPITAL)'.lower() in line.lower():
+                        key = 'STATEMENT OF CAPITAL (SHARE CAPITAL)'
+                    # STATEMENT OF CAPITAL (TOTALS)
+                    if 'STATEMENT OF CAPITAL (TOTALS)'.lower() in line.lower():
+                        key = 'STATEMENT OF CAPITAL (TOTALS)'
+                    # FULL DETAILS OF SHAREHOLDERS
+                    if 'FULL DETAILS OF SHAREHOLDERS'.lower() in line.lower():
+                        key = 'FULL DETAILS OF SHAREHOLDERS'
+                    # AUTHORISATION
+                    if line.lower().startswith('AUTHORISATION'.lower()):
+                        key = 'AUTHORISATION'
+                    sections[key].append(line)
 
-        # COMPANY INFORMATION ARE not parsed from this document since its information is available on website. the only additional data that this document posseses are historical addresses which are not important at this stage
-        # OFFICERS OF THE COMPANY are not parsed from this document since its full history is available on website
-        # STATEMENT OF CAPITAL (SHARE CAPITAL) are not parsed as most information can be deducted from FULL DETAILS OF SHAREHOLDERS
-        # STATEMENT OF CAPITAL (TOTALS)': [] are not parsed as most information can be deducted from FULL DETAILS OF SHAREHOLDERS
+            # COMPANY INFORMATION ARE not parsed from this document since its information is available on website. the only additional data that this document posseses are historical addresses which are not important at this stage
+            # OFFICERS OF THE COMPANY are not parsed from this document since its full history is available on website
+            # STATEMENT OF CAPITAL (SHARE CAPITAL) are not parsed as most information can be deducted from FULL DETAILS OF SHAREHOLDERS
+            # STATEMENT OF CAPITAL (TOTALS)': [] are not parsed as most information can be deducted from FULL DETAILS OF SHAREHOLDERS
 
-        content = {
-                    'FULL DETAILS OF SHAREHOLDERS': []
-                    }
+            content = {
+                        'FULL DETAILS OF SHAREHOLDERS': []
+                        }
 
-        for key, lst in sections.items():
+            for key, lst in sections.items():
 
-            i = 0
-            for line in lst:
+                i = 0
+                for line in lst:
 
-                if key == 'FULL DETAILS OF SHAREHOLDERS':
+                    if key == 'FULL DETAILS OF SHAREHOLDERS':
 
-                    # some data might still have : in the name. such as Shareholding: --> remove it
+                        # some data might still have : in the name. such as Shareholding: --> remove it
 
-                    first_colon = max(line.find(":"), line.find(";")) #ocr can mistake ; for :
-                    shareholding_line = line[first_colon + 1:] if first_colon != -1 else line
+                        first_colon = max(line.find(":"), line.find(";")) #ocr can mistake ; for :
+                        shareholding_line = line[first_colon + 1:] if first_colon != -1 else line
 
-                    if 'shares held as at' in shareholding_line:
-                        shareholding_line = shareholding_line.split('shares held as at')[0].strip()
-                        first_number = re.search(r"\d", shareholding_line).start()
-                        shareholding = shareholding_line[first_number:].split(' ')
-                        shares = int(shareholding[0])
-                        share_type = ' '.join(shareholding[1:])
+                        if 'shares held as at' in shareholding_line:
+                            shareholding_line = shareholding_line.split('shares held as at')[0].strip()
 
-                        #find shareholder
+                            if shareholding_line.lower() == 'lordinary': # special case for ocr misparsing
+                                shares = 1
+                                share_type = 'ORDINARY'
+                            else:
+                                first_number = re.search(r"\d", shareholding_line).start()
+                                shareholding = shareholding_line[first_number:].split(' ')
+                                shares = clean_and_convert_to_int(shareholding[0])
+                                share_type = ' '.join(shareholding[1:])
 
-                        j = 1
-                        shareholder = ''
-                        searching = True
-                        while searching: #look ten lines ahead to find the next shareholder
+                            #find shareholder
 
-                            next_line = lst[i + j].strip()
-                            if next_line.lower().startswith('name'):
-                                first_colon = max(next_line.find(":"), next_line.find(";"))
-                                next_line = next_line[first_colon + 1:] if first_colon != -1 else next_line
+                            j = 1
+                            shareholder = ''
+                            searching = True
+                            while searching: #look ten lines ahead to find the next shareholder
 
-                                shareholder = next_line
-                                searching = False
-                            j += 1
+                                next_line = lst[i + j].strip()
+                                if next_line.lower().startswith('name'):
+                                    first_colon = max(next_line.find(":"), next_line.find(";"))
+                                    next_line = next_line[first_colon + 1:] if first_colon != -1 else next_line
 
-                        if shareholder == '':
-                            raise ValueError('shareholder not found')
+                                    shareholder = next_line
+                                    searching = False
+                                j += 1
 
-                        name_without_titles = remove_titles(shareholder)
-                        is_company = is_organization(shareholder)
-                        content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
-                i += 1
+                            if shareholder == '':
+                                raise ValueError('shareholder not found')
 
+                            name_without_titles = remove_titles(shareholder)
+                            is_company = is_organization(shareholder)
+                            content['FULL DETAILS OF SHAREHOLDERS'].append({'name': name_without_titles, 'share_type': share_type.strip(), 'shares': shares, 'is_company': is_company})
+                    i += 1
+
+        except Exception as ex:
+            # logger.error(f'company: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
+            if psm == 4:
+                logger.info(f'company retrying with psm 6: {self.crunchbase_company_name} page: {self.page_number_filing} {str(line)} {str(lst)} {str(ex)}')
+                try:
+                    content = self.parse_annual_return_ocr(url, dt, poppler_path, psm=6)
+                    return content
+                except Exception as ex:
+                    raise ValueError(f'cannot parse confirmation statement str(ex)')
         return content
 
     # gets a substring of a string after a number of symbols. i.e. Shareholder x: XXXX would return XXXX.
@@ -1119,7 +1149,7 @@ class CompaniesHouseBot(scrapy.Spider):
 
             for key, value in out_dict.items():
                 if key == 'number_of_shares':
-                    out_dict[key] = int(value)
+                    out_dict[key] = clean_and_convert_to_int(value)
                 elif key in ['nominal_value', 'amount_paid', 'amount_unpaid']:
                     try:
                         out_dict[key] = float(value.lower().replace('each', '').replace('share', '').strip())
@@ -1268,13 +1298,14 @@ class CompaniesHouseBot(scrapy.Spider):
 
         # change names to same as in shareholders dictionary
         for item in content['INITIAL SHAREHOLDINGS']:
-            item['name'] = remove_titles(item['name'])
-            if 'class_of_share' in item:
-                item['share_type'] = item.pop('class_of_share')
-            if 'number_of_shares' in item:
-                item['shares'] = item.pop('number_of_shares')
-            is_company = is_organization(item['name'])
-            item['is_company'] = is_company
+            if item:
+                item['name'] = remove_titles(item['name'])
+                if 'class_of_share' in item:
+                    item['share_type'] = item.pop('class_of_share')
+                if 'number_of_shares' in item:
+                    item['shares'] = item.pop('number_of_shares')
+                is_company = is_organization(item['name'])
+                item['is_company'] = is_company
         return content
         # print(json.dumps(content, sort_keys = True, indent = 4))
 
@@ -1302,6 +1333,9 @@ def run_companieshouse_bot_defer(uuids_filter='*', category_groups_list_filter='
     data = CompaniesHouseBot.get_data_from_pending(uuids_filter, '*', category_groups_list_filter, country_code_filter, from_filter, to_filter, force)
 
     # data = [data[8]]
+    if len(data) == 0:
+        logger.info(f'no companies found that are pending.')
+        return
 
     runner = CrawlerRunner(settings)
     for row in data:
