@@ -748,64 +748,67 @@ def get_uuids_from_crunchbase_organizations(names=['elliptic', 'isize']):
 def get_profile_uuid(name, company_uuid):
     return name.lower() + '|' + str(company_uuid)
 
-'''
-uuids: company uuids
-'''
-def get_data(uuids='*'):
+def get_data(uuids_filter='*', country_codes_filter='*', category_groups_filter='*', join_companieshouse='INNER', join_linkedin='INNER', DB_HOST=DB_HOST, DB_NAME=DB_NAME, DB_USER=DB_USER, DB_PASSWORD=DB_PASSWORD, DB_PORT=DB_PORT):
+    """
+    Fetches data based on UUIDs, country codes, and category groups with specified join types for companieshouse and linkedin data.
 
-    conn = psycopg2.connect(
-                host=DB_HOST,
-                database=DB_NAME,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                port=DB_PORT
-            )
+    Parameters:
+    - uuids_filter: list of UUID strings or '*'. If '*', fetches all records.
+    - country_codes_filter: list of country codes to filter organizations from crunchbase, or '*' for no filtering.
+    - category_groups_filter: list of category group names to filter organizations from crunchbase, or '*' for no filtering. Uses case-insensitive matching.
+    - join_companieshouse: 'INNER' or 'LEFT' join type for companieshouse data.
+    - join_linkedin: 'INNER' or 'LEFT' join type for linkedin data.
+    """
+    with psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, port=DB_PORT) as conn:
+        with conn.cursor() as cursor:
+            # Handling UUIDs filtering
+            uuids_str = "'%'" if uuids_filter == '*' else ', '.join([f"'{item}'" for item in uuids_filter])
 
-    cursor = conn.cursor()
+            # Handling Country Code filtering
+            country_code_list_filter = ""
+            if country_codes_filter != '*':
+                country_codes_str = ', '.join([f"'{code}'" for code in country_codes_filter])
+                country_code_list_filter = f"AND co.country_code IN ({country_codes_str})"
 
-    if uuids == '*':
-        uuids_str = "'%'"
-    else:
-        uuids_str = ', '.join([f"'{item}'" for item in uuids])
+            # Handling Category Groups filtering
+            category_groups_filter_sql = ""
+            if category_groups_filter != '*':
+                category_groups_conditions = ' OR '.join([f"co.category_groups_list LIKE '%{item}%'" for item in category_groups_filter])
+                category_groups_filter_sql = f"AND ({category_groups_conditions})"
 
-    query = "SELECT t3.uuid, t3.name, t3.crunchbase_data, t3.companieshouse_data, t4.linkedin_data " \
-            "FROM " \
-            "(" \
-                "SELECT t1.uuid, t2.name, t1.data as crunchbase_data, t2.data as companieshouse_data " \
-                "FROM " \
-                "(" \
-                    "SELECT uuid, data " \
-                    "FROM data " \
-                    f"WHERE source = 'crunchbase' AND uuid::text LIKE ANY (ARRAY[{uuids_str}])" \
-                ") AS t1 " \
-                "INNER JOIN " \
-                "(" \
-                    "SELECT uuid, name, data " \
-                    "FROM data " \
-                    "WHERE source = 'companieshouse'" \
-                ") AS t2 " \
-                "ON t1.uuid = t2.uuid" \
-            ") AS t3 " \
-            "INNER JOIN " \
-            "(" \
-                "SELECT uuid_parent, json_build_object('source', 'linkedin', 'properties', json_build_object(), 'cards', json_build_object('persons', json_agg(data))) as linkedin_data " \
-                "FROM data " \
-                "WHERE source = 'linkedin' " \
-                "GROUP BY uuid_parent" \
-            ") AS t4 " \
-            "ON t3.uuid = t4.uuid_parent "
+            query = f"""
+            SELECT t3.uuid, t3.name, t3.crunchbase_data, t3.companieshouse_data, t4.linkedin_data 
+            FROM (
+                SELECT t1.uuid, co.name, t1.data as crunchbase_data, t2.data as companieshouse_data 
+                FROM (
+                    SELECT uuid, data 
+                    FROM data 
+                    WHERE source = 'crunchbase' AND uuid::text LIKE ANY (ARRAY[{uuids_str}])
+                ) AS t1
+                INNER JOIN crunchbase_organizations co ON t1.uuid = co.uuid
+                {country_code_list_filter}
+                {category_groups_filter_sql}
+                {join_companieshouse} JOIN (
+                    SELECT uuid, name, data 
+                    FROM data 
+                    WHERE source = 'companieshouse'
+                ) AS t2 ON t1.uuid = t2.uuid
+            ) AS t3 
+            {join_linkedin} JOIN (
+                SELECT uuid_parent, json_build_object('source', 'linkedin', 'properties', json_build_object(), 'cards', json_build_object('persons', json_agg(data))) as linkedin_data 
+                FROM data 
+                WHERE source = 'linkedin' 
+                GROUP BY uuid_parent
+            ) AS t4 ON t3.uuid = t4.uuid_parent
+            """
 
-    cursor.execute(query)
-    rows = cursor.fetchall()
+            cursor.execute(query)
+            rows = cursor.fetchall()
 
-    # Get the column names from the cursor description
-    columns = [desc[0] for desc in cursor.description]
+            # Transform the result set into a list of dictionaries
+            columns = [desc[0] for desc in cursor.description]
+            result = [dict(zip(columns, row)) for row in rows]
 
-    # Transform the result set into a list of dictionaries
-    result = [dict(zip(columns, row)) for row in rows]
-
-    cursor.close()
-    conn.close()
     return result
 
 class CustomFormatter(logging.Formatter):
