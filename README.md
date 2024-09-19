@@ -14,7 +14,7 @@
 
 CompanyBot is an advanced data aggregation project designed to consolidate information about companies and entrepreneurs from multiple sources into a single, comprehensive database. This unified database serves as a powerful resource for in-depth statistical analysis and research.
 
-## Implemented Bots
+## Bots
 
 The project currently includes three specialized bots:
 
@@ -24,7 +24,7 @@ The project currently includes three specialized bots:
 
 Each bot is tailored to extract specific data from its respective source, ensuring a wide range of relevant information is captured.
 
-### Crunchbase Bot [`crunchbase_bot`]
+### Crunchbase Bot (Implemented)
 
 The `crunchbase_bot` utilizes the official Crunchbase API, which requires university research access. This bot is crucial for gathering comprehensive company data from one of the most extensive startup and company databases available.
 
@@ -51,7 +51,7 @@ The bot queries two main types of data:
 #### Data Storage
 All retrieved data is consolidated into a single dictionary and stored as a JSON object in the database, allowing for flexible querying and analysis.
 
-### Companies House Bot [`companieshouse_bot`]
+### Companies House Bot (Partially Implemented)
 
 The `companieshouse_bot` leverages the `scrapy` library to systematically extract data from the official Companies House website (https://find-and-update.company-information.service.gov.uk/). This bot provides crucial information about UK-registered companies.
 
@@ -83,7 +83,7 @@ The bot navigates through various pages and documents using a provided `companyh
 4. `parse_insolvency`: 
    Extracts information related to company insolvency, when applicable. This data is available for a subset of companies.
 
-### LinkedIn Bot [`linkedin_bot`]
+### LinkedIn Bot (Partially Implemented)
 
 The `linkedin_bot` employs custom parsing techniques using Python's `beautifulsoup` library and Selenium for web automation. This bot is designed to extract professional information from LinkedIn profiles.
 
