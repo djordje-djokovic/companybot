@@ -87,7 +87,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='CompanyBot Command Line Arguments')
 
-    parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='Coumpany UUIDs filter. Default "*"')
+    parser.add_argument('--uuids-company-filter', nargs='+', default=['*'], help='Company UUIDs filter. Default "*"')
     parser.add_argument('--uuids-profile-filter', nargs='+', default=['*'], help='Linkedin UUIDs profile filter. Default "*"')
     parser.add_argument('--category-groups-list-filter', nargs='+', default=['Artificial Intelligence'], help=f'Company category group filter from {str(CATEGORY_LIST_GROUPS)}. Default "Artificial Intelligence"')
     parser.add_argument('--country-code-filter', nargs='+', default=['GBR'], help='Company country code filter. Default "GBR"')

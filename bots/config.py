@@ -1,35 +1,45 @@
-import os, pytesseract
+import os
+import pytesseract
+from dotenv import load_dotenv
+from pathlib import Path
 
+# Specify the path to the .env file located one folder up
+env_path = Path('..') / '.env'
+
+# Load environment variables from the specified .env file
+load_dotenv(dotenv_path=env_path)
+
+# Load variables from the environment
 CRUNCHBASE_DIR = './data/crunchbase'
-CRUNCHBASE_KEY = 'dfb043062d28d95b82945d8673377146'
+CRUNCHBASE_KEY = os.getenv('CRUNCHBASE_KEY')
 
-POPPLER_PATH = 'C:\\Program Files (x86)\\poppler-23.01.0\\Library\\bin'
-TESSDATA_PATH = os.environ["TESSDATA_PREFIX"] = "C:\\Users\\Djordje\\miniconda3\\share\\tessdata"
-TESSERACT_PATH = pytesseract.pytesseract.tesseract_cmd = r'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+POPPLER_PATH = os.getenv('POPPLER_PATH')
+TESSDATA_PATH = os.getenv('TESSDATA_PATH')
+TESSERACT_PATH = pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_PATH')
 
-BRAVE_PATH = r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe'
-# output from get_category_group_list()
-CATEGORY_LIST_GROUPS = ['Administrative Services', 'Advertising', 'Agriculture and Farming', 'Apps', 'Artificial Intelligence',
- 'Biotechnology', 'Clothing and Apparel', 'Commerce and Shopping', 'Community and Lifestyle', 'Consumer Electronics',
- 'Consumer Goods', 'Content and Publishing', 'Data and Analytics', 'Design', 'Education', 'Energy', 'Events',
- 'Financial Services', 'Food and Beverage', 'Gaming', 'Government and Military', 'Hardware', 'Health Care',
- 'Information Technology', 'Internet Services', 'Manufacturing', 'Media and Entertainment',
- 'Messaging and Telecommunications', 'Mobile', 'Music and Audio', 'Natural Resources', 'Navigation and Mapping', 'Other', 'Payments',
- 'Platforms', 'Privacy and Security', 'Professional Services', 'Real Estate', 'Sales and Marketing',
- 'Science and Engineering', 'Software', 'Sports', 'Sustainability', 'Transportation', 'Travel and Tourism', 'Video']
+BRAVE_PATH = os.getenv('BRAVE_PATH')
 
-DB_HOST ="localhost"
-DB_NAME ="uni"
-DB_USER ="postgres"
-DB_PASSWORD ="password"
-DB_PORT = 5433
+DB_HOST = os.getenv('DB_HOST')
+DB_NAME = os.getenv('DB_NAME')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_PORT = int(os.getenv('DB_PORT'))
 
-# login uni
-LINKEDIN_EMAIL = 'modest71rus@gmx.at' # companybot001@proton.me'  #'companybot001+001@proton.me' #'djdjoko@gmail.com'
-LINKEDIN_PWD = 'TazSKFFhKTh'
+LINKEDIN_EMAIL = os.getenv('LINKEDIN_EMAIL')
+LINKEDIN_PWD = os.getenv('LINKEDIN_PWD')
 
+# CATEGORY_LIST_GROUPS and other non-sensitive variables can stay in your Python script as they are not sensitive data
+CATEGORY_LIST_GROUPS = [
+    'Administrative Services', 'Advertising', 'Agriculture and Farming', 'Apps', 'Artificial Intelligence',
+    'Biotechnology', 'Clothing and Apparel', 'Commerce and Shopping', 'Community and Lifestyle', 'Consumer Electronics',
+    'Consumer Goods', 'Content and Publishing', 'Data and Analytics', 'Design', 'Education', 'Energy', 'Events',
+    'Financial Services', 'Food and Beverage', 'Gaming', 'Government and Military', 'Hardware', 'Health Care',
+    'Information Technology', 'Internet Services', 'Manufacturing', 'Media and Entertainment',
+    'Messaging and Telecommunications', 'Mobile', 'Music and Audio', 'Natural Resources', 'Navigation and Mapping', 'Other',
+    'Payments', 'Platforms', 'Privacy and Security', 'Professional Services', 'Real Estate', 'Sales and Marketing',
+    'Science and Engineering', 'Software', 'Sports', 'Sustainability', 'Transportation', 'Travel and Tourism', 'Video'
+]
 
-#
 
 # organizations found: 14902 {'category_groups_list': ['Administrative Services'], 'country_code': ['GBR']}
 # organizations found: 12306 {'category_groups_list': ['Advertising'], 'country_code': ['GBR']}
