@@ -187,6 +187,7 @@ python main.py [arguments]
 ### Example Output Data
 
 The bots store the consolidated data in the PostgreSQL database as JSON objects. Below is an example of the kind of data you can expect:
+(for a full example look at https://github.com/djordje-djokovic/companybot/blob/master/data/companieshouse_sample.json)
 
 ```json
 {
