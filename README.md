@@ -24,32 +24,6 @@ The project currently includes three specialized bots:
 
 Each bot is tailored to extract specific data from its respective source, ensuring a wide range of relevant information is captured.
 
-### Crunchbase Bot (Implemented)
-
-The `crunchbase_bot` utilizes the official Crunchbase API, which requires university research access. This bot is crucial for gathering comprehensive company data from one of the most extensive startup and company databases available.
-
-#### API Structure
-The Crunchbase API employs a structure of fields and cards:
-- A card is a collection of related fields
-- The company itself is represented as a card with its own set of fields
-
-#### Data Retrieval
-The bot queries two main types of data:
-
-1. **Company Fields**: 
-   Full list of fields queried:
-   ```
-   acquirer_identifier, aliases, categories, category_groups, closed_on, company_type, contact_email, created_at, delisted_on, demo_days, description, diversity_spotlights, entity_def_id, equity_funding_total, exited_on, facebook, facet_ids, founded_on, founder_identifiers, funding_stage, funding_total, funds_total, hub_tags, identifier, image_id, image_url, investor_identifiers, investor_stage, investor_type, ipo_status, last_equity_funding_total, last_equity_funding_type, last_funding_at, last_funding_total, last_funding_type, last_key_employee_change_date, last_layoff_date, layout_id, legal_name, linkedin, listed_stock_symbol, location_group_identifiers, location_identifiers, name, num_acquisitions, num_alumni, num_articles, num_current_advisor_positions, num_current_positions, num_diversity_spotlight_investments, num_employees_enum, num_enrollments, num_event_appearances, num_exits, num_exits_ipo, num_founder_alumni, num_founders, num_funding_rounds, num_funds, num_investments, num_investors, num_lead_investments, num_lead_investors, num_past_positions, num_portfolio_organizations, num_sub_organizations, operating_status, override_layout_id, owner_identifier, permalink, permalink_aliases, phone_number, program_application_deadline, program_duration, program_type, rank_delta_d30, rank_delta_d7, rank_delta_d90, rank_org, rank_principal, revenue_range, school_method, school_program, school_type, short_description, status, stock_exchange_symbol, stock_symbol, twitter, updated_at, uuid, valuation, valuation_date, website, website_url, went_public_on
-   ```
-
-2. **Cards**:
-   Full list of cards queried:
-   ```
-   acquiree_acquisitions, acquirer_acquisitions, child_organizations, child_ownerships, event_appearances, fields, founders, headquarters_address, investors, ipos, jobs, key_employee_changes, layoffs, parent_organization, parent_ownership, participated_funding_rounds, participated_funds, participated_investments, press_references, raised_funding_rounds, raised_funds, raised_investments
-   ```
-
-#### Data Storage
-All retrieved data is consolidated into a single dictionary and stored as a JSON object in the database, allowing for flexible querying and analysis.
 
 ### Companies House Bot (Partially Implemented)
 
@@ -82,6 +56,33 @@ The bot navigates through various pages and documents using a provided `companyh
 
 4. `parse_insolvency`: 
    Extracts information related to company insolvency, when applicable. This data is available for a subset of companies.
+
+### Crunchbase Bot (Almost Completed)
+
+The `crunchbase_bot` utilizes the official Crunchbase API, which requires university research access. This bot is crucial for gathering comprehensive company data from one of the most extensive startup and company databases available.
+
+#### API Structure
+The Crunchbase API employs a structure of fields and cards:
+- A card is a collection of related fields
+- The company itself is represented as a card with its own set of fields
+
+#### Data Retrieval
+The bot queries two main types of data:
+
+1. **Company Fields**: 
+   Full list of fields queried:
+   ```
+   acquirer_identifier, aliases, categories, category_groups, closed_on, company_type, contact_email, created_at, delisted_on, demo_days, description, diversity_spotlights, entity_def_id, equity_funding_total, exited_on, facebook, facet_ids, founded_on, founder_identifiers, funding_stage, funding_total, funds_total, hub_tags, identifier, image_id, image_url, investor_identifiers, investor_stage, investor_type, ipo_status, last_equity_funding_total, last_equity_funding_type, last_funding_at, last_funding_total, last_funding_type, last_key_employee_change_date, last_layoff_date, layout_id, legal_name, linkedin, listed_stock_symbol, location_group_identifiers, location_identifiers, name, num_acquisitions, num_alumni, num_articles, num_current_advisor_positions, num_current_positions, num_diversity_spotlight_investments, num_employees_enum, num_enrollments, num_event_appearances, num_exits, num_exits_ipo, num_founder_alumni, num_founders, num_funding_rounds, num_funds, num_investments, num_investors, num_lead_investments, num_lead_investors, num_past_positions, num_portfolio_organizations, num_sub_organizations, operating_status, override_layout_id, owner_identifier, permalink, permalink_aliases, phone_number, program_application_deadline, program_duration, program_type, rank_delta_d30, rank_delta_d7, rank_delta_d90, rank_org, rank_principal, revenue_range, school_method, school_program, school_type, short_description, status, stock_exchange_symbol, stock_symbol, twitter, updated_at, uuid, valuation, valuation_date, website, website_url, went_public_on
+   ```
+
+2. **Cards**:
+   Full list of cards queried:
+   ```
+   acquiree_acquisitions, acquirer_acquisitions, child_organizations, child_ownerships, event_appearances, fields, founders, headquarters_address, investors, ipos, jobs, key_employee_changes, layoffs, parent_organization, parent_ownership, participated_funding_rounds, participated_funds, participated_investments, press_references, raised_funding_rounds, raised_funds, raised_investments
+   ```
+
+#### Data Storage
+All retrieved data is consolidated into a single dictionary and stored as a JSON object in the database, allowing for flexible querying and analysis.
 
 ### LinkedIn Bot (Partially Implemented)
 
